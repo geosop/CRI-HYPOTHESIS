@@ -1,0 +1,21 @@
+name: goldilocks_cri
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - numpy=1.24
+  - pandas
+  - scipy
+  - matplotlib
+  - scikit-learn
+  - mne=1.8.0
+  - pip
+  - pip:
+      - ace-tools
+      - flask
+      - itsdangerous
+      - werkzeug
+      - jinja2
+      - graphviz
+
