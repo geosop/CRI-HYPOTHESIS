@@ -10,6 +10,8 @@ dependencies:
   - matplotlib
   - scikit-learn
   - mne=1.8.0
+  - psychopy
+  - wxpython
   - pip
   - pip:
       - ace-tools
@@ -19,4 +21,4 @@ dependencies:
       - jinja2
       - graphviz
       - python-picard
-      - psychopy
+
