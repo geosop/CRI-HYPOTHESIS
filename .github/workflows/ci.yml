@@ -18,7 +18,7 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
-          environment-file: utilities/env.yml
+          environment-file: utilities/env-ci.yml
           python-version: 3.9
           activate-environment: goldilocks_cri
 
