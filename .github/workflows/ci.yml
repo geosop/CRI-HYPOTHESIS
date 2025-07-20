@@ -23,10 +23,12 @@ jobs:
           activate-environment: goldilocks_cri
 
       - name: Install extra pip packages
+        shell: bash -l {0}
         run: |
           pip install python-picard psychopy
 
       - name: Run pipeline smoke test
+        shell: bash -l {0}
         run: |
           chmod +x run_all.sh
           ./run_all.sh
