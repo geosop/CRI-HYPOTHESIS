@@ -22,9 +22,37 @@ jobs:
           python-version: 3.9
           activate-environment: goldilocks_cri
 
-      - name: Run pipeline smoke test
+      - name: Make run_all.sh executable
+        run: chmod +x run_all.sh
+
+      
+      - name: Run pipeline smoke test(stop on error, with timestamp)
         shell: bash -l {0}
         run: |
-          chmod +x run_all.sh
+          set -e
+          echo "Started pipeline at $(date)"
           ./run_all.sh
+          echo "Finished pipeline at $(date)"
 
+
+      - name: Set timestamp for artifact
+        id: set_timestamp
+        run: echo "timestamp=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_OUTPUT
+
+     
+     - name: Upload pipeline outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-outputs-${{ steps.set_timestamp.outputs.timestamp }}
+          path: |
+            figures/output/
+            decay/output/
+            logistic_gate/output/
+            qpt/output/
+            synthetic_EEG/output/
+            preprocessing/output/
+            epochs_features/output/
+            statistics/output/
+            stimulus_presentation/output/
+            local_smoke_test.log
+            smoke_test.log
