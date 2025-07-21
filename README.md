@@ -73,7 +73,8 @@ conda activate goldilocks_cri
 ### Code Ocean Capsule
 This repository is directly compatible with Code Ocean capsules.
 Reviewers: To reproduce all results, simply launch the capsule and run the provided pipeline script.
-- [Code Ocean reproducibility guidelines](https://support.codeocean.com/hc/en-us/articles/360010599893-Use-an-environment-YAML-file-to-specify-your-software-environment)
+For detailed instructions on using `environment.yml` files in Code Ocean capsules, see:
+- [Template capsule: Building from `environment.yml` on Code Ocean](https://help.codeocean.com/en/articles/3574667-template-capsule-building-from-environment-yml-with-deep-learning-jupyter-notebooks-in-a-loop)
 
 ## Full Pipeline (One Command)
 To reproduce all analyses and figures (using only synthetic data):
