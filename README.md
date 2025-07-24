@@ -12,6 +12,7 @@ This repository supports the Perspective manuscript submission:
 It provides all code, synthetic data, simulations, figures, and numerical pipelines to transparently reproduce and audit the CRI framework and its supplementary analyses.
 CRI (Goldilocks-CRI) proposes that neural systems can—under sharply tuned, “just-right” physiological conditions—be influenced by probabilistic information about future outcomes. This model combines predictive coding, quantum process tomography, and novel “Goldilocks” retrocausal gating, producing specific, testable signatures in behavior, EEG, and simulated neural dynamics.
 
+>⚠️ Note: This repository contains code for computational modeling and simulation only. It does not provide pipelines or scripts for empirical EEG or behavioral data analysis.
 
 ---
 
@@ -115,22 +116,14 @@ python figures/make_tomography_figure.py
 - No human or empirical data are used in this project.
 
 ## EEG Artifact Handling Details
-- Robust bad-channel detection for both synthetic and real datasets.
+- Robust bad-channel detection for synthetic datasets.
 - Peak-to-peak, flatness, and variance thresholds configurable in `default_params.yml`.
-- For synthetic data, interpolation sets bad channels to `NaN`.
-- For real EEG, ensure digitization/headshape points are present for full spatial interpolation.
+- In all simulation outputs, interpolation for bad channels is handled by assigning `NaN` values.
 
 ## Known Warnings & Expected Behavior
 - `"Interpolation failed: No digitization points found..."` — Expected for synthetic datasets.
 - Filename warnings from MNE — Outputs can be renamed for BIDS/MNE compatibility if required.
 - `tight_layout` UserWarning — Figure rendering only; no effect on scientific results.
-
-## Using with Real EEG Data
-To use this pipeline with real EEG data:
-- Place `.fif` files in the designated input directory.
-- Update `default_params.yml` for channel naming and thresholds.
-- Ensure headshape/digitization data are present for full spatial interpolation.
-- See `preprocessing/artifact_pipeline.py` for further configuration.
 
 ---
 
