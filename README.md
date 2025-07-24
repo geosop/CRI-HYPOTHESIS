@@ -1,12 +1,17 @@
 # Goldilocks_CRI
 
-**Reproducibility Pipeline for the "Conscious Retroactive Intervention (CRI)" Perspective Manuscript**
+**Reproducibility Pipeline for the "Conscious Retroactive Intervention (CRI)" PERSPECTIVE Manuscript in preparation**
 
 ---
 
 ## Overview
 
-This repository provides all code, scripts, and environment specifications required to fully reproduce the simulations and analyses for the manuscript submitted for double-blind review.
+This repository supports the Perspective manuscript submission:
+> **"Conscious Retroactive Intervention: A Time-Reversed Quantum Framework for Predictive Cognition"**
+
+It provides all code, synthetic data, simulations, figures, and numerical pipelines to transparently reproduce and audit the CRI framework and its supplementary analyses.
+CRI (Goldilocks-CRI) proposes that neural systems can—under sharply tuned, “just-right” physiological conditions—be influenced by probabilistic information about future outcomes. This model combines predictive coding, quantum process tomography, and novel “Goldilocks” retrocausal gating, producing specific, testable signatures in behavior, EEG, and simulated neural dynamics.
+
 
 ---
 
@@ -42,16 +47,11 @@ Goldilocks_CRI/
 - **Automated Artifact Removal:**  
   Identifies flat, noisy, or artifact-laden channels using peak-to-peak and variance metrics.
 - **Transparent SI Reproduction:**  
-  All figures and tables in the SI can be reproduced from the command line. Output is written to standardized folders.
+  All figures and tables in the manuscript can be reproduced from the command line. Output is written to standardized folders.
 - **Continuous Integration:**  
   CI is configured to verify reproducibility on every commit using a minimal Conda environment.
 
 ---
-
-
-
-
-
 
 ## Getting Started
 
@@ -69,12 +69,6 @@ conda env create -n goldilocks_cri -f utilities/env-ci.yml
 # 2. Activate the environment
 conda activate goldilocks_cri
 ```
-
-### Code Ocean Capsule
-This repository is directly compatible with Code Ocean capsules.
-Reviewers: To reproduce all results, simply launch the capsule and run the provided pipeline script.
-For detailed instructions on using `environment.yml` files in Code Ocean capsules, see:
-- [Template capsule: Building from `environment.yml` on Code Ocean](https://help.codeocean.com/en/articles/3574667-template-capsule-building-from-environment-yml-with-deep-learning-jupyter-notebooks-in-a-loop)
 
 ## Full Pipeline (One Command)
 To reproduce all analyses and figures (using only synthetic data):
@@ -116,6 +110,8 @@ python figures/make_tomography_figure.py
 ```
 ## Data and Code Availability
 - All simulation code and synthetic data are included.
+- All figures in the manuscript are reproducible from the generated outputs.
+- Statistical analyses (permutation tests, power) are performed with published parameters.
 - No human or empirical data are used in this project.
 
 ## EEG Artifact Handling Details
@@ -136,14 +132,19 @@ To use this pipeline with real EEG data:
 - Ensure headshape/digitization data are present for full spatial interpolation.
 - See `preprocessing/artifact_pipeline.py` for further configuration.
 
+---
+
 ## Contact
-- For technical questions or reproducibility issues, please use the repository’s GitHub Issues page.
-- Direct personal or institutional contact is intentionally omitted to **preserve author anonymity**.
+
+**Maintained by:** George Sopasakis
+Conscious Retroactive Intervention Project, 2025
+- For questions regarding possible collaborations, technical or reproducibility issues, please use the repository’s GitHub Issues page.
+
 
 ## Citation
-If you use this code or data, please cite:
-> [Reference to the associated manuscript. Details omitted for anonymous review. Manuscript in preparation.]
 
+If you use this code or data, please cite:
+> Sopasakis, G. (2025). Conscious Retroactive Intervention: A Reversed-Time Framework for Predictive Cognition. Manuscript in preparation.
 
 
 ## License
@@ -151,12 +152,11 @@ If you use this code or data, please cite:
 MIT License. See `LICENSE` for details.
 
 
-
 ## Disclaimer
 
 This repository contains research code for a Perspective manuscript under review. All data are synthetic or simulated; results are for demonstration and reproducibility purposes only. For clinical or commercial use, independent validation is required.
 
 ---
-**Last updated:** 2025-07-21
+**Last updated:** 2025-07-24
 
 
