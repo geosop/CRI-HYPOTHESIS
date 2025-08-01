@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jul  2 12:09:37 2025
+figures/make_tomography_figure.py  •  CRI v0.1‑SIM
+-----------------------------------------------------------------
+Generate the synthetic rate‑estimation figure:
 
-@author: ADMIN
+  • Left: excited‑state population decay P(t) for two γ_b values
+  • Right: inferred jump‑rate ratio R vs. environmental coupling λ_env,
+           plus a linear regression fit  (simulation only)
 
-figures/make_tomography_figure.py
+Outputs a vector PDF (180 mm wide).  All inputs come from
+qpt/output/*.  They are purely synthetic; no experimental
+tomography data are included in v0.1‑SIM.
 
-Generate the Quantum Process Tomography figure for Perspective:
-  - Left: simulated excited-state population decay P(t)
-  - Right: observed R vs κ with fitted linear relation
-  - Exports as PDF at 180 mm width, vector format with embedded fonts
-
-Usage:
+Usage
+-----
     python make_tomography_figure.py
 """
 
@@ -22,91 +24,85 @@ import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-# — Publication-quality styling —
-mpl.rcParams['font.family']     = 'Arial'
-mpl.rcParams['font.size']       = 8
-mpl.rcParams['axes.linewidth']  = 0.5    # ≈0.25 pt after reduction
-mpl.rcParams['lines.linewidth'] = 0.75   # ≈0.5 pt
-mpl.rcParams['legend.fontsize'] = 6
-mpl.rcParams['xtick.labelsize'] = 6
-mpl.rcParams['ytick.labelsize'] = 6
-# —————————————————————————
+# ── Matplotlib style (journal quality) ───────────────────────────────────────
+mpl.rcParams.update({
+    "font.family":      "Arial",
+    "font.size":        8,
+    "axes.linewidth":   0.5,
+    "lines.linewidth":  0.75,
+    "legend.fontsize":  6,
+    "xtick.labelsize":  6,
+    "ytick.labelsize":  6,
+})
+# ─────────────────────────────────────────────────────────────────────────────
 
 def load_params(path):
-    """Load QPT simulation parameters from YAML."""
-    with open(path, 'r', encoding='utf-8') as f:
+    """Load regression‑simulation parameters."""
+    with open(path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    return cfg['qpt']
-
+    return cfg["qpt"]
 
 def main():
-    here    = os.path.dirname(__file__)
-    repo    = os.path.abspath(os.path.join(here, os.pardir))
-    qpt_dir = os.path.join(repo, 'qpt')
-    out_dir = os.path.join(here, 'output')
+    here     = os.path.dirname(__file__)
+    repo     = os.path.abspath(os.path.join(here, os.pardir))
+    qpt_dir  = os.path.join(repo, "qpt")
+    out_dir  = os.path.join(here, "output")
     os.makedirs(out_dir, exist_ok=True)
 
-    # Load parameters and simulation data
-    params = load_params(os.path.join(qpt_dir, 'default_params.yml'))
-    sim_path = os.path.join(qpt_dir, 'output', 'qpt_sim_data.npz')
-    sim = np.load(sim_path)
-    if 'lambda_env' not in sim.files:
-        raise KeyError("Missing 'lambda_env' in QPT simulation data")
+    # ── load synthetic arrays ───────────────────────────────────────────────
+    params   = load_params(os.path.join(qpt_dir, "default_params.yml"))
+    sim      = np.load(os.path.join(qpt_dir, "output", "qpt_sim_data.npz"))
+    required = {"t", "gamma_b_vals", "pops", "lambda_env", "R_obs"}
+    if not required.issubset(sim.files):
+        raise KeyError(f"Simulation NPZ must contain keys {required}")
 
-    t            = sim['t']
-    gamma_b_vals = sim['gamma_b_vals']
-    pops_list    = sim['pops']
-    lambda_env   = sim['lambda_env']
-    R_obs        = sim['R_obs']
+    t            = sim["t"]
+    gamma_b_vals = sim["gamma_b_vals"]
+    pops_list    = sim["pops"]
+    lambda_env   = sim["lambda_env"]
+    R_obs        = sim["R_obs"]
 
-    # Load fit results
-    df_R = pd.read_csv(os.path.join(qpt_dir, 'output', 'qpt_R_fit.csv'))
-    slope     = df_R['slope'].iloc[0]
-    intercept = df_R['intercept'].iloc[0]
+    # linear‑fit coefficients (slope, intercept) from CSV
+    df_fit   = pd.read_csv(os.path.join(qpt_dir, "output", "qpt_R_fit.csv"))
+    slope    = df_fit["slope"].iloc[0]
+    intercept= df_fit["intercept"].iloc[0]
 
-    # Figure size: 180 mm wide, 3:1 aspect → 60 mm tall
-    width_mm  = 180
-    height_mm = width_mm / 3
+    # ── figure canvas (180 mm × 60 mm) ──────────────────────────────────────
+    width_mm, height_mm = 180, 180 / 3
     fig, (ax1, ax2) = plt.subplots(
         1, 2,
+        figsize=(width_mm / 25.4, height_mm / 25.4),
         constrained_layout=True,
-        figsize=(width_mm/25.4, height_mm/25.4),
-        gridspec_kw={'width_ratios': [1, 1]}
+        gridspec_kw={"width_ratios": [1, 1]},
     )
 
-    # Left: population decay
+    # ── left panel : P(t) decay ─────────────────────────────────────────────
     for gb, pop in zip(gamma_b_vals, pops_list):
-        ax1.plot(t, pop, label=rf'$\gamma_b={gb:.1f}$')
-    ax1.set_xlabel('Time $t$ (s)')
-    ax1.set_ylabel('Population $P(t)$')
-    ax1.set_title('Simulated Excited-State Populations')
-    ax1.legend(title='Backward rates', loc='upper right')
-    ax1.grid(True, linestyle='--', alpha=0.5)
+        ax1.plot(t, pop, label=rf"$\gamma_b={gb:.1f}$")
+    ax1.set_xlabel(r"Time $t$ (s)")
+    ax1.set_ylabel(r"Population $P(t)$")
+    ax1.set_title("Simulated Excited State Populations")
+    ax1.legend(title="Backward rates", loc="upper right")
+    ax1.grid(True, linestyle="--", alpha=0.5)
 
-    # Right: R vs lambda_env
-    ax2.scatter(lambda_env, R_obs, s=25, label='Observed $R$')
-    lam_cont = np.linspace(
-        params['lambda_env_min'],
-        params['lambda_env_max'],
-        100
-    )
-    ax2.plot(
-        lam_cont,
-        slope * lam_cont + intercept,
-        linestyle='--',
-        label=rf'Fit: $R = {slope:.2f}\,\lambda_{{env}} + {intercept:.2f}$'
-    )
-    ax2.set_xlabel(r'Environmental coupling $\lambda_{env}$')
-    ax2.set_ylabel(r'Jump-rate ratio $R$')
-    ax2.set_title('Inferred $R$ vs. $\lambda_{env}$')
-    ax2.legend(loc='upper left')
-    ax2.grid(True, linestyle='--', alpha=0.5)
+    # ── right panel : R vs λ_env ────────────────────────────────────────────
+    ax2.scatter(lambda_env, R_obs, s=25, label="Observed $R$")
+    lam_cont = np.linspace(params["lambda_env_min"],
+                           params["lambda_env_max"], 200)
+    ax2.plot(lam_cont, slope * lam_cont + intercept,
+             linestyle="--",
+             label=rf"Fit: $R = {slope:.2f}\,\lambda_{{env}} + {intercept:.2f}$")
+    ax2.set_xlabel(r"Environmental coupling $\lambda_{env}$")
+    ax2.set_ylabel(r"Jump rate ratio $R$")
+    ax2.set_title("Inferred $R$ vs. $\lambda_{env}$")
+    ax2.legend(loc="upper left")
+    ax2.grid(True, linestyle="--", alpha=0.5)
 
-    # Save as vector PDF
-    pdf_path = os.path.join(out_dir, 'tomography_refined_figure.pdf')
-    fig.savefig(pdf_path, format='pdf', bbox_inches='tight')
+    # ── export ──────────────────────────────────────────────────────────────
+    pdf_path = os.path.join(out_dir, "CRI_rate_estimation_fig.pdf")
+    fig.savefig(pdf_path, format="pdf", bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved tomography figure to {pdf_path}")
+    print(f"Saved rate‑estimation figure ➜ {pdf_path}")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
