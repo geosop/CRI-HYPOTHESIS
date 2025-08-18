@@ -1,99 +1,92 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Jul  1 15:14:15 2025
-author: ADMIN
-
 qpt/qpt_simulation.py
 
-Generates synthetic Kraus‐map tomography data:
- - Simulates excited‐state populations P(t) = exp(-(γ_f+γ_b)*t/2)
- - Simulates inferred jump‐rate ratio R_obs ≈ λ_env + noise
- - Saves P(t), R_obs and λ_env to an NPZ for downstream fitting
+Generates synthetic data for Box-2(c):
+  - Left: P(t) = exp(-(γ_f + γ_b) t / 2) for γ_b in {0.2, 0.8}, γ_f = 1.0
+  - Right: For each λ_env in a grid, simulate R_samples ≈ λ_env + noise
+           (n_trials_per_lambda per λ) → mean & 95% CI per λ
 
-Usage:
-    python qpt_simulation.py
+Writes qpt/output/qpt_sim_data.npz with:
+  t, gamma_b_vals, pops(2D float array), lambda_env, R_mean, R_ci_low, R_ci_high
 """
-
-import os
-import sys
-import yaml
+import os, sys, yaml
 import numpy as np
 
-# ─── allow imports from project root ──────────────────────────────────────────
+# ensure utilities on path
 root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if root not in sys.path:
     sys.path.insert(0, root)
-# ──────────────────────────────────────────────────────────────────────────────
+try:
+    from utilities.seed_manager import load_state, save_state
+except Exception:
+    def load_state(): pass
+    def save_state(): pass
 
-from utilities.seed_manager import load_state, save_state
-
+DEFAULTS = {
+    'gamma_f': 1.0,
+    'gamma_b_vals': [0.2, 0.8],
+    't_max': 10.0,
+    'n_t': 200,
+    'lambda_env_min': 0.0,
+    'lambda_env_max': 1.0,
+    'n_lambda_env': 11,
+    'noise_R': 0.05,
+    'n_trials_per_lambda': 200,
+    'ci_percent': 95,
+    'seed': 52,
+}
 
 def load_params():
-    """Load QPT parameters from default_params.yml in this folder."""
     here = os.path.dirname(__file__)
     cfg_path = os.path.join(here, 'default_params.yml')
-    with open(cfg_path, 'r', encoding='utf-8') as f:
-        cfg = yaml.safe_load(f)
-    return cfg['qpt']
-
+    with open(cfg_path, 'r', encoding='utf-8-sig', errors='replace') as f:
+        cfg = yaml.safe_load(f) or {}
+    user = (cfg.get('qpt') or {})
+    return {**DEFAULTS, **user}
 
 def simulate_populations(t, gamma_f, gamma_b_vals):
-    """
-    Simulate excited-state populations for each gamma_b over time axis t:
-      P(t) = exp[-(gamma_f + gamma_b) * t / 2].
-    """
-    return {gb: np.exp(-(gamma_f + gb) * t / 2.0) for gb in gamma_b_vals}
-
-
-def simulate_R(lambda_env, noise_std, seed):
-    """
-    Simulate observed jump-rate ratios:
-      R_obs = lambda_env + Gaussian noise,
-    clipped at zero.
-    """
-    rng = np.random.default_rng(seed)
-    noise = rng.normal(loc=0.0, scale=noise_std, size=lambda_env.shape)
-    return np.clip(lambda_env + noise, 0.0, None)
-
+    # return a 2D float array: rows correspond to γ_b
+    curves = [np.exp(-(gamma_f + gb) * t / 2.0) for gb in gamma_b_vals]
+    return np.vstack(curves).astype(float)
 
 def main():
-    # ─── reproducibility ──────────────────────────────────────────────────────
-    load_state()  # no-op on first run
-    params = load_params()
-    np.random.seed(params.get('seed', 0))
-    save_state()  # freeze RNG for downstream steps
-    # ─────────────────────────────────────────────────────────────────────────
+    load_state()
+    p = load_params()
+    rng = np.random.default_rng(p['seed'])
+    save_state()
 
-    # Time axis for population decay
-    t = np.linspace(0, params['t_max'], params['n_t'])
+    # Left panel data
+    t = np.linspace(0.0, float(p['t_max']), int(p['n_t']))
+    pops = simulate_populations(t, float(p['gamma_f']), [float(g) for g in p['gamma_b_vals']])
 
-    # 1) Simulate populations
-    pops_dict = simulate_populations(t, params['gamma_f'], params['gamma_b_vals'])
+    # Right panel data
+    lambda_env = np.linspace(float(p['lambda_env_min']),
+                             float(p['lambda_env_max']),
+                             int(p['n_lambda_env']))
+    n_trials = int(p['n_trials_per_lambda'])
+    noise = float(p['noise_R'])
+    alpha = (100 - float(p['ci_percent'])) / 100.0
 
-    # 2) Simulate R vs environmental coupling
-    lambda_env = np.linspace(
-        params['lambda_env_min'],
-        params['lambda_env_max'],
-        params['n_lambda_env']
-    )
-    R_obs = simulate_R(lambda_env, params['noise_R'], params.get('seed', 0))
+    R_mean, R_low, R_high = [], [], []
+    for lam in lambda_env:
+        samples = lam + rng.normal(0.0, noise, size=n_trials)
+        samples = np.clip(samples, 0, None)
+        R_mean.append(np.mean(samples))
+        R_low.append(np.percentile(samples, 100*alpha/2))
+        R_high.append(np.percentile(samples, 100*(1 - alpha/2)))
 
-    # Prepare output directory
-    out_dir = os.path.join(os.path.dirname(__file__), 'output')
-    os.makedirs(out_dir, exist_ok=True)
-
-    # Save to NPZ
-    out_path = os.path.join(out_dir, 'qpt_sim_data.npz')
-    np.savez(
-        out_path,
-        t=t,
-        gamma_b_vals=params['gamma_b_vals'],
-        pops=[pops_dict[gb] for gb in params['gamma_b_vals']],
-        lambda_env=lambda_env,
-        R_obs=R_obs
-    )
-    print(f"Saved synthetic QPT data (populations + R_obs) to {out_path}")
-
+    out = os.path.join(os.path.dirname(__file__), 'output')
+    os.makedirs(out, exist_ok=True)
+    np.savez(os.path.join(out, 'qpt_sim_data.npz'),
+             t=t.astype(float),
+             gamma_b_vals=np.array(p['gamma_b_vals'], dtype=float),
+             pops=pops,  # 2D float array (n_gb × n_t)
+             lambda_env=lambda_env.astype(float),
+             R_mean=np.array(R_mean, dtype=float),
+             R_ci_low=np.array(R_low, dtype=float),
+             R_ci_high=np.array(R_high, dtype=float))
+    print("Saved qpt_sim_data.npz  (pops shape:", pops.shape, ")")
 
 if __name__ == '__main__':
     main()

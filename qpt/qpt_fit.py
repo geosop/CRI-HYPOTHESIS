@@ -1,121 +1,83 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Jul  1 15:15:36 2025
-author: ADMIN
-
 qpt/qpt_fit.py
 
 Fits:
-  1) P(t) → recover (γ_f + γ_b) via linear regression on ln P(t)
-  2) R_obs vs λ_env → linear fit R = λ_env (zero intercept) with bootstrap 95% CI
+  1) For each γ_b, linear fit to ln P(t) to recover (γ_f+γ_b)
+  2) R_mean vs λ_env → linear regression + bootstrap CI for slope
 
-Outputs fit parameters & CIs to CSV.
-Usage:
-    python qpt_fit.py
+Writes:
+  - qpt/output/qpt_pop_fit.csv
+  - qpt/output/qpt_R_fit.csv
 """
-
-import os
-import yaml
+import os, yaml
 import numpy as np
 import pandas as pd
 from scipy.stats import linregress
 
-
 def load_params():
-    """Load QPT parameters from default_params.yml in the same folder."""
     here = os.path.dirname(__file__)
     cfg_path = os.path.join(here, 'default_params.yml')
-    with open(cfg_path, 'r') as f:
+    with open(cfg_path, 'r', encoding='utf-8-sig', errors='replace') as f:
         cfg = yaml.safe_load(f)
     return cfg['qpt']
 
-
-def fit_population(t, pops):
-    """
-    Fit ln P = –(γ_f + γ_b) t/2 via linear regression.
-    Returns (gamma_sum, gamma_err).
-    """
-    slope, _, _, _, stderr = linregress(t, np.log(pops))
+def fit_population(t, pop_row):
+    x = np.asarray(t, dtype=float)
+    y = np.log(np.asarray(pop_row, dtype=float))  # force numeric array
+    slope, _, _, _, stderr = linregress(x, y)
     gamma_sum = -2.0 * slope
-    gamma_err = 2.0 * stderr
-    return gamma_sum, gamma_err
+    err = 2.0 * stderr
+    return gamma_sum, err
 
-
-def fit_R(lambda_env, R_obs):
-    """
-    Fit R_obs vs lambda_env via linear regression:
-       R_obs = slope * lambda_env + intercept
-    Returns (slope, intercept, slope_err).
-    """
-    slope, intercept, _, _, stderr = linregress(lambda_env, R_obs)
+def fit_R(lambda_env, R_mean):
+    x = np.asarray(lambda_env, dtype=float)
+    y = np.asarray(R_mean, dtype=float)
+    slope, intercept, _, _, stderr = linregress(x, y)
     return slope, intercept, stderr
 
-
-def bootstrap_slope(lambda_env, R_obs, n_boot, ci_percent):
-    """
-    Bootstrap CI for the slope of R vs lambda_env at given ci_percent.
-    """
+def bootstrap_R(lambda_env, R_mean, n_boot, ci):
     rng = np.random.default_rng(0)
+    x = np.asarray(lambda_env, dtype=float)
+    y = np.asarray(R_mean, dtype=float)
+    n = len(x)
     slopes = []
-    n = len(lambda_env)
-    for _ in range(n_boot):
+    for _ in range(int(n_boot)):
         idx = rng.integers(0, n, n)
-        slope, _, _ = fit_R(lambda_env[idx], R_obs[idx])
-        slopes.append(slope)
-    lower = (100 - ci_percent) / 2.0
-    upper = 100 - lower
-    return np.percentile(slopes, [lower, upper])
-
+        s, _, _ = fit_R(x[idx], y[idx])
+        slopes.append(s)
+    low, high = np.percentile(slopes, [(100-ci)/2, 100-(100-ci)/2])
+    return low, high
 
 def main():
-    # Load parameters
-    params = load_params()
-
-    # Load simulation data
+    p = load_params()
     here = os.path.dirname(__file__)
-    data = np.load(os.path.join(here, 'output', 'qpt_sim_data.npz'))
-    t            = data['t']
-    gamma_b_vals = data['gamma_b_vals']
-    pops         = data['pops']       # list of arrays
-    lambda_env   = data['lambda_env']
-    R_obs        = data['R_obs']
+    dat = np.load(os.path.join(here, 'output', 'qpt_sim_data.npz'))
+    t            = dat['t']
+    gamma_b_vals = dat['gamma_b_vals']
+    pops         = dat['pops']          # 2D float array (n_gb × n_t)
+    lambda_env   = dat['lambda_env']
+    R_mean       = dat['R_mean']
 
-    # 1) Fit populations for each backward rate
-    pop_results = []
-    for gb, pop in zip(gamma_b_vals, pops):
-        sum_rate, sum_err = fit_population(t, pop)
-        pop_results.append({
-            'gamma_b':    gb,
-            'gamma_sum':  sum_rate,
-            'gamma_err':  sum_err
-        })
-    df_pops = pd.DataFrame(pop_results)
+    # Population fits
+    rows = []
+    for gb, pop_row in zip(gamma_b_vals, pops):
+        rate, err = fit_population(t, pop_row)
+        rows.append({'gamma_b': float(gb), 'gamma_sum': float(rate), 'err': float(err)})
+    pd.DataFrame(rows).to_csv(os.path.join(here, 'output', 'qpt_pop_fit.csv'), index=False)
 
-    # 2) Fit R_obs vs lambda_env
-    slope, intercept, slope_err = fit_R(lambda_env, R_obs)
-    ci_low, ci_high = bootstrap_slope(
-        lambda_env, R_obs,
-        params['n_bootstrap'],
-        params.get('ci_percent', 95)
-    )
-    df_R = pd.DataFrame({
-        'slope':     [slope],
-        'intercept': [intercept],
-        'slope_err': [slope_err],
-        'ci_low':    [ci_low],
-        'ci_high':   [ci_high]
-    })
+    # R fit + bootstrap CI for slope
+    slope, intercept, s_err = fit_R(lambda_env, R_mean)
+    ci_low, ci_high = bootstrap_R(lambda_env, R_mean, p.get('n_bootstrap', 2000), p.get('ci_percent', 95))
+    df_R = pd.DataFrame([{
+        'slope': float(slope),
+        'intercept': float(intercept),
+        'slope_err': float(s_err),
+        'ci_low': float(ci_low),
+        'ci_high': float(ci_high)
+    }])
+    df_R.to_csv(os.path.join(here, 'output', 'qpt_R_fit.csv'), index=False)
+    print("Saved qpt_pop_fit.csv and qpt_R_fit.csv")
 
-    # Save fit results
-    out_dir = os.path.join(here, 'output')
-    os.makedirs(out_dir, exist_ok=True)
-    df_pops.to_csv(os.path.join(out_dir, 'qpt_pop_fit.csv'), index=False)
-    df_R.to_csv(os.path.join(out_dir, 'qpt_R_fit.csv'), index=False)
-
-    print(f"Population fits saved to {out_dir}/qpt_pop_fit.csv")
-    print(f"Ratio fits saved to      {out_dir}/qpt_R_fit.csv")
-    print(f"Slope = {slope:.3f} ± {slope_err:.3f} (CI {params.get('ci_percent',95)}%: [{ci_low:.3f}, {ci_high:.3f}])")
-
-
-if __name__ == '__main__':
+if __name__=='__main__':
     main()

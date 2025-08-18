@@ -3,11 +3,22 @@ logistic:
   p_min: 0.0
   p_max: 1.0
   n_points: 400
+
+  # Illustration priors (Box 2b)
   p0: 0.5
   alpha: 0.05
   noise_std: 0.05
-  seed: 0
+
+  # Fitting initial guesses
   p0_guess: 0.5
-  alpha_guess: 0.1
-  n_bootstrap: 1000
+  alpha_guess: 0.05
+
+  # Bootstrap and CI settings
+  n_bootstrap: 2000
   ci_percent: 95
+
+  # Observed samples used to fit (ensure >= 20)
+  n_obs: 25
+
+  # Figure export
+  figure_dpi: 1200

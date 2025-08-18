@@ -1,11 +1,26 @@
 decay:
   seed: 52
   A0: 1.0
-  tau_fut: 20.0
-  noise_log: 0.1
-  delta_start: 0
-  delta_end: 30
-  delta_step: 5
+
+  # Future-decay constant (τ_fut); Box-2(a) uses 20 ms.
+  tau_f: 0.02           # seconds (20 ms)
+
+  # Log-domain point noise (σ_log). Interpreted as SD of ln(A_pre).
+  noise_log: 0.10
+
+  # Discrete delays (seconds): {0,5,10,15,20} ms
+  delta_start: 0.0
+  delta_end:   0.02
+  delta_step:  0.005
+
+  # Continuous curve sampling and bootstrap
   n_cont: 300
-  n_boot: 1000
+  n_boot: 2000
   ci_percent: 95
+
+  # Detection threshold ε (shown as dashed red line at ln ε and ε in inset)
+  epsilon_detection: 0.01
+
+  # Figure export
+  figure_dpi: 1200
+

@@ -1,111 +1,113 @@
 # -*- coding: utf-8 -*-
 """
-figures/make_logistic_figure.py  •  CRI v0.1‑SIM
------------------------------------------------------------------
-Generate the logistic “tipping‑point” figure (gate probability
-vs. cue probability) for the Perspective / SI.
+figures/make_logistic_figure.py  •  CRI v0.1-SIM
 
-Outputs a vector PDF (88 mm wide, 6:4 aspect).  All data are
-synthetic — see logistic_gate/ for CSV + YAML inputs.
+Render Box-2(b): logistic “tipping point” with a light-teal 95% bootstrap CI,
+solid blue fitted sigmoid, orange observed points, dashed vertical line at p0̂,
+and an inset showing dG/dp peaking at p0̂.
 
-Usage
------
-    python make_logistic_figure.py
+Usage:
+    python figures/make_logistic_figure.py
 """
-
-import os
-import yaml
+import os, yaml
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
-# ── Matplotlib style (journal‑ready) ─────────────────────────────────────────
 mpl.rcParams.update({
-    "font.family":      "Arial",
-    "font.size":        8,
-    "axes.linewidth":   0.5,
-    "lines.linewidth":  0.75,
-    "legend.fontsize":  6,
-    "xtick.labelsize":  6,
-    "ytick.labelsize":  6,
+    "font.family":"Arial","font.size":8,
+    "axes.linewidth":0.6,"lines.linewidth":1.0,
+    "legend.fontsize":6,"xtick.labelsize":7,"ytick.labelsize":7,
+    "pdf.fonttype":42,"ps.fonttype":42,  # embed TrueType
 })
-# ─────────────────────────────────────────────────────────────────────────────
 
 def load_params(path):
-    with open(path, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-    return cfg["logistic"]
+    with open(path,'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)['logistic']
 
 def logistic(p, p0, alpha):
-    """Gate G(p) = 1 / (1 + exp(-(p - p0)/alpha))."""
-    return 1.0 / (1.0 + np.exp(-(p - p0) / alpha))
+    return 1.0/(1.0 + np.exp(-(p - p0)/alpha))
 
-def derivative(p, p0, alpha):
-    """Analytic derivative dG/dp."""
-    k = 1.0 / alpha
-    exp_t = np.exp(-k * (p - p0))
-    return k * exp_t / (1.0 + exp_t) ** 2
+def dlogistic_dp(p, p0, alpha):
+    k = 1.0/alpha
+    e = np.exp(-k*(p - p0))
+    return k*e/(1.0 + e)**2
 
 def main():
-    here     = os.path.dirname(__file__)
-    repo     = os.path.abspath(os.path.join(here, os.pardir))
-    gate_dir = os.path.join(repo, "logistic_gate")
-    out_dir  = os.path.join(here, "output")
-    os.makedirs(out_dir, exist_ok=True)
+    here   = os.path.dirname(__file__)
+    repo   = os.path.abspath(os.path.join(here, os.pardir))
+    gate   = os.path.join(repo, 'logistic_gate')
+    params = load_params(os.path.join(gate, 'default_params.yml'))
 
-    # ── load synthetic data ─────────────────────────────────────────────────
-    params  = load_params(os.path.join(gate_dir, "default_params.yml"))
-    df_obs  = pd.read_csv(os.path.join(gate_dir, "output", "logistic_data.csv"))
-    df_fit  = pd.read_csv(os.path.join(gate_dir, "output", "fit_logistic_results.csv"))
+    # Inputs
+    df_curve = pd.read_csv(f'{gate}/output/logistic_curve.csv')    # p, G_true (not strictly needed)
+    df_band  = pd.read_csv(f'{gate}/output/logistic_band.csv')     # p, G_central, G_low, G_high
+    df_fit   = pd.read_csv(f'{gate}/output/fit_logistic_results.csv')
+    df_obs   = pd.read_csv(f'{gate}/output/logistic_data.csv')
 
-    p0_hat    = df_fit["p0_hat"].iloc[0]
-    alpha_hat = df_fit["alpha_hat"].iloc[0]
-    noise     = params["noise_std"]
+    p_cont  = df_band['p'].values
+    G_ctr   = df_band['G_central'].values
+    G_low   = df_band['G_low'].values
+    G_high  = df_band['G_high'].values
+    p_obs   = df_obs['p'].values
+    G_obs   = df_obs['G_obs'].values
 
-    # ── continuous curve for plotting ───────────────────────────────────────
-    p_cont = np.linspace(params["p_min"], params["p_max"], params["n_points"])
-    G_fit  = logistic(p_cont, p0_hat, alpha_hat)
-    upper  = np.clip(G_fit + noise, 0.0, 1.0)
-    lower  = np.clip(G_fit - noise, 0.0, 1.0)
+    p0_hat  = df_fit['p0_hat'].iloc[0]
+    alpha_hat = df_fit['alpha_hat'].iloc[0]
 
-    # ── figure (88 mm single‑column) ────────────────────────────────────────
-    width_mm, height_mm = 88, 88 / 1.5
-    fig, ax = plt.subplots(figsize=(width_mm / 25.4, height_mm / 25.4),
-                            constrained_layout=True)
+    # Colors (solid blue line, light-teal CI, orange circles)
+    col_blue = "#1f77b4"
+    col_teal = "#6EC5B8"
+    col_orng = "#FF8C1A"
 
-    # main panel
-    ax.plot(p_cont, G_fit, color="C0", label="Fitted logistic")
-    ax.fill_between(p_cont, lower, upper, color="C0", alpha=0.30,
-                    label=rf"±{noise:.2f} CI")
-    ax.scatter(df_obs["p"], df_obs["G_obs"], s=25, edgecolors="k",
-               facecolors="C1", label="Observed")
-    ax.axvline(p0_hat, color="grey", linestyle="--",
-               label=rf"$\hat{{p}}_0={p0_hat:.2f}$")
+    # Figure
+    fig, ax = plt.subplots(figsize=(88/25.4, (88/1.5)/25.4))
 
+    # CI band (light-teal, visible)
+    ax.fill_between(p_cont, G_low, G_high,
+                    facecolor=col_teal, alpha=0.45, edgecolor=col_teal, linewidth=0.6,
+                    label=f"{params['ci_percent']}% CI (bootstrap)")
+
+    # Fitted logistic (solid blue line)
+    ax.plot(p_cont, G_ctr, color=col_blue, linewidth=1.2, label=r"Fitted logistic $G(p\mid a)$")
+
+    # Observed orange circles with thin black edge
+    ax.scatter(p_obs, G_obs, s=18, facecolors=col_orng, edgecolors='black', linewidths=0.4,
+               label="Observed")
+
+    # Vertical dashed at p0̂
+    ax.axvline(p0_hat, color='grey', linestyle='--', linewidth=0.8, label=rf"$p_0={p0_hat:.2f}$")
+
+    # Axes & legend
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
     ax.set_xlabel(r"$p$")
-    ax.set_ylabel(r"$G(p \mid a)$")
-    ax.legend(loc="upper left")
+    ax.set_ylabel(r"$G(p\mid a)$")
+    ax.legend(loc='upper left', frameon=True)
 
-    # inset: derivative
-    ax_ins = inset_axes(ax, width="75%", height="75%",
-                        loc="lower left",
-                        bbox_to_anchor=(0.65, 0.30, 0.4, 0.4),
+    # Inset: derivative dG/dp; dashed line at p0̂
+    ax_ins = inset_axes(ax, width='70%', height='70%',
+                        loc='lower left', bbox_to_anchor=(0.62, 0.27, 0.38, 0.38),
                         bbox_transform=ax.transAxes)
-    ax_ins.plot(p_cont, derivative(p_cont, p0_hat, alpha_hat),
-                linewidth=0.75, color="C0")
-    ax_ins.set_title(r"$\mathrm{d}G/\mathrm{d}p$", fontsize=8)
+    ax_ins.plot(p_cont, dlogistic_dp(p_cont, p0_hat, alpha_hat), color=col_blue, linewidth=0.9)
+    ax_ins.axvline(p0_hat, color='grey', linestyle='--', linewidth=0.7)
+    ax_ins.set_title(r'$\mathrm{d}G/\mathrm{d}p$', fontsize=8)
     ax_ins.set_xlabel(r"$p$", fontsize=7)
     ax_ins.set_ylabel("Rate", fontsize=7)
+    ax_ins.set_xlim(0, 1)
     ax_ins.tick_params(labelsize=6)
 
-    # ── export ──────────────────────────────────────────────────────────────
-    pdf_path = os.path.join(out_dir, "CRI_logistic_refined_fig.pdf")
-    fig.savefig(pdf_path, format="pdf", bbox_inches="tight")
+    # Save
+    out = os.path.join(here, 'output')
+    os.makedirs(out, exist_ok=True)
+    pdf = os.path.join(out, 'Box2b_logistic_refined.pdf')
+    png = os.path.join(out, 'Box2b_logistic_refined.png')
+    fig.savefig(pdf, bbox_inches='tight')
+    fig.savefig(png, dpi=params.get('figure_dpi', 1200), bbox_inches='tight')
     plt.close(fig)
-    print(f"Saved logistic figure ➜ {pdf_path}")
+    print(f"Saved logistic figure → {pdf} and {png}")
 
-if __name__ == "__main__":
+if __name__=='__main__':
     main()
-
