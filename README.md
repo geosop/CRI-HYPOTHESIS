@@ -153,7 +153,13 @@ and saved to:
 ```text
 figures/output/SI_Fig1_EEG_flowchart.png
 ```
+## Main manuscript Figure 1 (TikZ → PDF & PNG)
 
+A **TikZ program** has been added at `figures/CRI-manuscript_figure_1.tex` that compiles to a **vector PDF** and a **high-resolution PNG** into `figures/output/`.
+
+### 1) Create `figures/CRI-manuscript_figure_1.tex`
+
+> Standalone TikZ document (no `sidewaysfigure`/`caption`). Compile once; the output is tightly cropped to the graphic.
 
 ## Data and Code Availability
 - All simulation code and synthetic data are included.
