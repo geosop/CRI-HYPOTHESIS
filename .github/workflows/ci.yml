@@ -14,32 +14,46 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Install TeX + latexmk (for TikZ) and converters for PDF->PNG
+      - name: Install TeX Live, latexmk, and converters
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            latexmk \
+            texlive-latex-base texlive-latex-recommended texlive-latex-extra \
+            texlive-fonts-recommended texlive-pictures \
+            poppler-utils imagemagick
+
+      # Optional: show tool versions for easier debugging in logs
+      - name: Sanity checks (tool versions)
+        run: |
+          latexmk -v || true
+          pdftocairo -v || true
+          magick -version || true
+
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
           environment-file: utilities/env-ci.yml
-          python-version: 3.9
+          python-version: "3.9"
           activate-environment: goldilocks_cri
 
       - name: Make run_all.sh executable
         run: chmod +x run_all.sh
 
-      
-      - name: Run pipeline smoke test(stop on error, with timestamp)
+      - name: Run pipeline smoke test (stop on error, with timestamp)
         shell: bash -l {0}
         run: |
-          set -e
+          set -euo pipefail
           echo "Started pipeline at $(date)"
           ./run_all.sh
           echo "Finished pipeline at $(date)"
-
 
       - name: Set timestamp for artifact
         id: set_timestamp
         run: echo "timestamp=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_OUTPUT
 
-     
       - name: Upload pipeline outputs
         uses: actions/upload-artifact@v4
         with:
