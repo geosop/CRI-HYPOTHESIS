@@ -1,4 +1,4 @@
-# Goldilocks_CRI
+# CRI_Goldilocks
 
 **Reproducibility Pipeline for the "Conscious Retroactive Intervention (CRI)" PERSPECTIVE Manuscript in preparation**
 
@@ -109,6 +109,42 @@ python figures/make_logistic_figure.py
 python figures/make_tomography_figure.py
 
 ```
+
+## Downloading the generated figures (from GitHub Actions)
+
+Every push or pull request to `main` triggers the CI pipeline (`.github/workflows/ci.yml`). The pipeline runs `run_all.sh`, which executes the figure scripts:
+
+- `figures/make_decay_figure.py`
+- `figures/make_logistic_figure.py`
+- `figures/make_tomography_figure.py`
+
+The resulting figure files (PDF/PNG) are written to `figures/output/` and uploaded as a single workflow artifact named:
+```text
+pipeline-outputs-YYYY-MM-DD_HH-MM-SS
+```
+
+### Download via GitHub web UI
+1. Open the repository’s **Actions** tab.
+2. Click the most recent **CI** run on the `main` branch.
+3. In the run summary, scroll to **Artifacts** and download the ZIP named `pipeline-outputs-YYYY-MM-DD_HH-MM-SS`.
+4. Unzip locally and navigate to:
+
+```text
+figures/output/
+```
+The three generated figures (PDF/PNG) will be inside.
+
+### Download via GitHub CLI (optional)
+If you use the GitHub CLI (`gh`):
+
+```bash
+# Download the most recent run’s artifacts interactively
+gh run download
+
+# Or fetch a specific artifact by name into ./artifacts
+gh run download -n "pipeline-outputs-YYYY-MM-DD_HH-MM-SS" -D ./artifacts
+```
+
 ## Data and Code Availability
 - All simulation code and synthetic data are included.
 - All figures in the manuscript are reproducible from the generated outputs.
