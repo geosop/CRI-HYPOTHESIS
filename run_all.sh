@@ -53,6 +53,7 @@ echo "🖼 9) Figure generation"
 python figures/make_decay_figure.py
 python figures/make_logistic_figure.py
 python figures/make_tomography_figure.py
+python figures/EEG_flowchart_SIfigure1.py
 
 echo
 echo "✅ All pipelines complete!"
