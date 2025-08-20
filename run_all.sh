@@ -55,6 +55,24 @@ python figures/make_logistic_figure.py
 python figures/make_tomography_figure.py
 python figures/EEG_flowchart_SIfigure1.py
 
+# --- CRI Main Figure 1 (TikZ → PDF & PNG) ---
+# 1) Compile TikZ to PDF (cropped), writing into figures/output/
+latexmk -pdf -shell-escape -interaction=nonstopmode -halt-on-error \
+  -output-directory=figures/output \
+  figures/CRI-manuscript_figure_1.tex
+
+# 2) Convert the PDF to a high-res PNG (prefer pdftocairo; fallback to ImageMagick)
+if command -v pdftocairo >/dev/null 2>&1; then
+  pdftocairo -png -singlefile -r 600 \
+    figures/output/CRI-manuscript_figure_1.pdf \
+    figures/output/CRI-manuscript_figure_1
+elif command -v magick >/dev/null 2>&1; then
+  magick -density 600 figures/output/CRI-manuscript_figure_1.pdf \
+         -quality 100 figures/output/CRI-manuscript_figure_1.png
+else
+  echo "WARNING: Neither 'pdftocairo' nor 'magick' found; PNG not generated." 1>&2
+fi
+
 echo
 echo "✅ All pipelines complete!"
 
