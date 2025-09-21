@@ -1,72 +1,77 @@
-name: CI
-
+name: build-and-test
 on:
   push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
 
 jobs:
-  build-and-test:
+  figures:
     runs-on: ubuntu-latest
-
+    env:
+      MPLBACKEND: Agg
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Install TeX + latexmk (for TikZ) and converters for PDF->PNG
-      - name: Install TeX Live, latexmk, and converters
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system packages (LaTeX + tools)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            latexmk \
-            texlive-latex-base texlive-latex-recommended texlive-latex-extra \
-            texlive-fonts-recommended texlive-pictures \
+          sudo apt-get install -y \
+            texlive-latex-extra texlive-pictures texlive-fonts-recommended latexmk \
             poppler-utils imagemagick
 
-      # Optional: show tool versions for easier debugging in logs
-      - name: Sanity checks (tool versions)
-        run: |
-          latexmk -v || true
-          pdftocairo -v || true
-          magick -version || true
-
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          auto-update-conda: true
-          environment-file: utilities/env-ci.yml
-          python-version: "3.9"
-          activate-environment: goldilocks_cri
-
-      - name: Make run_all.sh executable
+      - name: Ensure runner can execute run_all.sh
         run: chmod +x run_all.sh
 
-      - name: Run pipeline smoke test (stop on error, with timestamp)
-        shell: bash -l {0}
+      - name: Install Python deps
         run: |
-          set -euo pipefail
-          echo "Started pipeline at $(date)"
-          ./run_all.sh
-          echo "Finished pipeline at $(date)"
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Set timestamp for artifact
-        id: set_timestamp
-        run: echo "timestamp=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_OUTPUT
+      - name: Build figures (incl. TikZ → PDF/PNG)
+        run: |
+          CRI_FIGS_ONLY=1 ./run_all.sh
 
-      - name: Upload pipeline outputs
+      - name: Stamp build metadata
+        run: |
+          python - <<'PY'
+          import os, json, platform, sys
+          from datetime import datetime, timezone
+          from pathlib import Path
+          out = Path("figures/output"); out.mkdir(parents=True, exist_ok=True)
+          info = {
+            "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "github": {
+              "workflow": os.environ.get("GITHUB_WORKFLOW"),
+              "run_id": os.environ.get("GITHUB_RUN_ID"),
+              "run_number": os.environ.get("GITHUB_RUN_NUMBER"),
+              "sha": os.environ.get("GITHUB_SHA"),
+              "ref": os.environ.get("GITHUB_REF"),
+              "actor": os.environ.get("GITHUB_ACTOR"),
+              "repo": os.environ.get("GITHUB_REPOSITORY"),
+            },
+            "runtime": {
+              "python": sys.version.replace("\n"," "),
+              "platform": platform.platform(),
+            }
+          }
+          (out/"build_info.json").write_text(json.dumps(info, indent=2))
+          print(json.dumps(info, indent=2))
+          PY
+
+      - name: Smoke test figures
+        run: |
+          python utilities/smoke_test.py --dir figures/output
+
+      - name: Upload figure artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pipeline-outputs-${{ steps.set_timestamp.outputs.timestamp }}
+          name: figures
           path: |
-            figures/output/
-            decay/output/
-            logistic_gate/output/
-            qpt/output/
-            synthetic_EEG/output/
-            preprocessing/output/
-            epochs_features/output/
-            statistics/output/
-            stimulus_presentation/output/
-            local_smoke_test.log
-            smoke_test.log
+            figures/output/*.pdf
+            figures/output/*.png
+            figures/output/manifest.*
+            figures/output/build_info.json
+
