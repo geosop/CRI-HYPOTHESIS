@@ -54,6 +54,7 @@ python figures/make_decay_figure.py
 python figures/make_logistic_figure.py
 python figures/make_tomography_figure.py
 python figures/EEG_flowchart_SIfigure1.py
+python figures/make_tierA_seconds_figure.py
 
 # --- CRI Main Figure 1 (TikZ → PDF & PNG) ---
 # 1) Compile TikZ to PDF (cropped), writing into figures/output/
