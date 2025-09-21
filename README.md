@@ -108,6 +108,7 @@ python figures/make_decay_figure.py
 python figures/make_logistic_figure.py
 python figures/make_tomography_figure.py
 python figures/EEG_flowchart_SIfigure1.py
+python figures/make_tierA_seconds_figure.py
 
 ```
 
@@ -118,6 +119,7 @@ Every push or pull request to `main` triggers the CI pipeline (`.github/workflow
 - `figures/make_decay_figure.py`
 - `figures/make_logistic_figure.py`
 - `figures/make_tomography_figure.py`
+- `figures/make_tierA_seconds_figure.py`
 
 The resulting figure files (PDF/PNG) are written to `figures/output/` and uploaded as a single workflow artifact named:
 ```text
