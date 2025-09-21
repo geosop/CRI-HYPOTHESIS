@@ -1,0 +1,32 @@
+# default_params.yml (repo root)
+
+TierA:
+  # Scheduler & sampling
+  T0: 1.0            # seconds; Tier-A "seconds-scale" horizon for P(τ_f)=τ_f/T0
+  N_TAU: 20          # number of τ_f grid points on [0, T0]
+
+  # Retro timescale
+  tau_fut: 0.10      # seconds; expected retro-decay constant (e.g., 0.10 s)
+
+  # Gate + threshold p0(a) = p_base + B_a * exp(-(a - mu_a)^2 / (2*sigma_a^2))
+  p_base: 0.20       # dimensionless
+  B_a: 0.50          # dimensionless; bump amplitude (use B_a, not B, for consistency)
+  mu_a: 0.0          # arousal index mean (arbitrary units)
+  sigma_a: 1.0       # arousal width (same units as mu_a)
+  alpha: 0.05        # logistic scale (dimensionless)
+  gate_thresh: 0.95  # retain trials with G >= gate_thresh for slope fit
+
+  # Trial ensemble
+  N_TRIALS: 5000
+  a_state_mean: 0.0  # mean of the arousal-state sampler
+  a_state_sd: 0.75   # SD of the arousal-state sampler
+
+  # Amplitude & noise model: A_pre = A0 * G * exp(-τ_f / tau_fut) + C_true + ε
+  A0: 1.0            # arbitrary units
+  C_true: 0.05       # additive baseline (subtracted before log-fit)
+  x_noise: 0.90      # noise-suppression index (Tier-A high suppression)
+  sigma0: 0.30       # baseline noise scale (a.u.); effective σ = sigma0*(1 - x_noise)^2
+
+  # Reproducibility & plotting
+  seed: 42
+  arousal_quantiles: [0.2, 0.5, 0.8]  # low/median/high bands for gate-saturation plot
