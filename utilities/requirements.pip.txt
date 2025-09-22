@@ -1,0 +1,14 @@
+# Minimal, pip-only deps for CI on ubuntu-latest
+numpy
+scipy
+matplotlib
+seaborn
+pandas
+PyYAML
+imageio
+scikit-image
+h5py
+mne==1.10.1
+
+# for OpenCV in the figure scripts, we use headless + a real tag:
+opencv-python-headless==4.11.0.86
