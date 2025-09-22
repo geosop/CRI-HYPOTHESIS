@@ -1,0 +1,15 @@
+tierB_tempered:
+  seed: 7
+  # True Tier-B mixture used for simulation
+  eta_true: 0.35               # mixture weight for fast component
+  tau_fast_true_s: 0.012       # 12 ms
+  tau_slow_true_s: 0.048       # 48 ms
+  n_samples: 800               # number of decay times to sample
+
+  # Curvature demo on log-survival
+  curvature_bins: 50           # histogram/CDF bins
+  t_max_s: 0.25                # x-axis extent for plots (seconds)
+
+  # Bootstrap CI settings (kept modest for CI runtime)
+  n_boot: 120                  # env override: TIERB_BOOT
+  max_iter: 500                # optimizer iterations
