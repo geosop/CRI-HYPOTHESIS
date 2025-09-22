@@ -40,7 +40,16 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then
+            echo "Using root requirements.txt"
+            pip install -r requirements.txt
+          elif [ -f utilities/requirements.txt ]; then
+            echo "Using utilities/requirements.txt"
+            pip install -r utilities/requirements.txt
+          else
+            echo "No requirements*.txt found; installing minimal deps"
+            pip install numpy matplotlib pyyaml
+          fi
 
       - name: Build figures (incl. TikZ → PDF/PNG)
         run: |
