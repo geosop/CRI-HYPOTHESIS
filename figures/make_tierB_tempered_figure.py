@@ -1,6 +1,6 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- 
 """
-ADMIN
+@author: ADMIN
 
 Figures for Tier-B tempered mixture:
   (A) AIC / LRT comparison (1-exp vs 2-exp)
@@ -28,6 +28,42 @@ OUT_FIG.mkdir(parents=True, exist_ok=True)
 # ensure module on path for fallback generation
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+# --- ECDF / Kaplan–Meier survival (no censoring) ------------------------------
+def km_log_survival(x: np.ndarray) -> dict[str, np.ndarray]:
+    """
+    Return {'t', 'log_surv_emp'} for an ECDF/Kaplan–Meier survival built
+    directly from the sample x. We drop the final step where S would hit 0
+    to avoid log(0). Works with purely uncensored samples.
+    """
+    x = np.asarray(x, float)
+    x = x[np.isfinite(x)]
+    if x.size < 2:
+        return {"t": x, "log_surv_emp": np.full_like(x, np.nan, dtype=float)}
+
+    xs, counts = np.unique(np.sort(x), return_counts=True)
+    n_risk = x.size
+    S_vals = []
+    T_vals = []
+    S = 1.0
+
+    for xi, di in zip(xs, counts):
+        if n_risk <= 0:
+            break
+        # KM step at distinct time xi with d_i events
+        S *= (1.0 - di / n_risk)
+        n_risk -= di
+        if S <= 0:
+            # would be log(0); stop before it
+            break
+        S_vals.append(S)
+        T_vals.append(xi)
+
+    T_vals = np.asarray(T_vals, float)
+    S_vals = np.asarray(S_vals, float)
+    logS = np.log(S_vals)
+    return {"t": T_vals, "log_surv_emp": logS}
 
 
 def ensure_data():
@@ -77,7 +113,22 @@ def main():
     # (B) Curvature on log scale
     axB = fig.add_subplot(gs[0, 1])
     axB.set_title("Log-survival curvature", fontsize=11)
-    axB.plot(curv["t"], curv["log_surv_emp"], marker="o", lw=0, ms=3, label="empirical")
+
+    # Prefer KM/ECDF from a raw synthetic sample if available
+    # Expecting a simple one-column CSV of event times in seconds
+    sample_path = OUT_TIERB / "sample_B.csv"
+    if sample_path.exists():
+        s = pd.read_csv(sample_path).to_numpy().ravel()
+        km = km_log_survival(s)
+        t_emp, log_emp = km["t"], km["log_surv_emp"]
+        emp_label = "empirical (KM/ECDF)"
+    else:
+        # Fallback to precomputed column (keeps backward compatibility)
+        t_emp = curv["t"].to_numpy()
+        log_emp = curv["log_surv_emp"].to_numpy()
+        emp_label = "empirical"
+
+    axB.plot(t_emp, log_emp, marker="o", lw=0, ms=3, label=emp_label)
     axB.plot(curv["t"], curv["log_surv_1exp"], lw=2, label="1-exp fit")
     axB.plot(curv["t"], curv["log_surv_2exp"], lw=2, label="2-exp fit")
     axB.set_xlabel("time (s)")
@@ -124,3 +175,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
