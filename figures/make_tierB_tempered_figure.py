@@ -4,11 +4,11 @@
 
 Figures for Tier-B tempered mixture:
   (A) AIC / LRT comparison (1-exp vs 2-exp)
-  (B) Log-survival curvature demo
+  (B) Log-survival curvature (early, ms)
   (C) 95% CIs for (eta, tau_fast, tau_slow)
 
 Saves PDF/PNG in figures/output/.
-If tierB_tempered outputs are missing, we generate them on-the-fly with small boot.
+If tierB_tempered outputs are missing, we generate them on the fly with small boot.
 """
 from __future__ import annotations
 
@@ -34,8 +34,8 @@ if str(ROOT) not in sys.path:
 def km_log_survival(x: np.ndarray) -> dict[str, np.ndarray]:
     """
     Return {'t', 'log_surv_emp'} for an ECDF/Kaplan–Meier survival built
-    directly from the sample x. We drop the final step where S would hit 0
-    to avoid log(0). Works with purely uncensored samples.
+    directly from sample x (in seconds). We drop the final step where S→0
+    to avoid log(0). Works with uncensored samples.
     """
     x = np.asarray(x, float)
     x = x[np.isfinite(x)]
@@ -44,26 +44,21 @@ def km_log_survival(x: np.ndarray) -> dict[str, np.ndarray]:
 
     xs, counts = np.unique(np.sort(x), return_counts=True)
     n_risk = x.size
-    S_vals = []
-    T_vals = []
+    S_vals, T_vals = [], []
     S = 1.0
-
     for xi, di in zip(xs, counts):
         if n_risk <= 0:
             break
-        # KM step at distinct time xi with d_i events
         S *= (1.0 - di / n_risk)
         n_risk -= di
         if S <= 0:
-            # would be log(0); stop before it
-            break
+            break  # avoid log(0)
         S_vals.append(S)
         T_vals.append(xi)
 
     T_vals = np.asarray(T_vals, float)
     S_vals = np.asarray(S_vals, float)
-    logS = np.log(S_vals)
-    return {"t": T_vals, "log_surv_emp": logS}
+    return {"t": T_vals, "log_surv_emp": np.log(S_vals)}
 
 
 def ensure_data():
@@ -87,7 +82,7 @@ def main():
     ensure_data()
 
     aic = pd.read_csv(OUT_TIERB / "aic_lrt.csv")
-    curv = pd.read_csv(OUT_TIERB / "curvature_demo.csv")
+    curv = pd.read_csv(OUT_TIERB / "curvature_demo.csv")  # columns: t (s), log_surv_*
     ci = pd.read_csv(OUT_TIERB / "ci_2exp.csv", index_col=0)
     f1 = pd.read_csv(OUT_TIERB / "fit_1exp.csv")
     f2 = pd.read_csv(OUT_TIERB / "fit_2exp.csv")
@@ -102,7 +97,7 @@ def main():
     aic1, aic2 = float(aic["AIC_1exp"]), float(aic["AIC_2exp"])
     bars = axA.bar([0, 1], [aic1, aic2], tick_label=["1-exp", "2-exp"])
     for b in bars:
-        axA.text(b.get_x() + b.get_width()/2, b.get_height(), f"{b.get_height():.1f}",
+        axA.text(b.get_x() + b.get_width() / 2, b.get_height(), f"{b.get_height():.1f}",
                  ha="center", va="bottom", fontsize=9)
     dAIC = float(aic["Delta_AIC"])
     lrt, p = float(aic["LRT"]), float(aic["p_value"])
@@ -110,29 +105,41 @@ def main():
              transform=axA.transAxes, ha="center", va="bottom", fontsize=10)
     axA.set_ylabel("AIC")
 
-    # (B) Curvature on log scale
+    # (B) Curvature on log scale (ms window to match CRI)
     axB = fig.add_subplot(gs[0, 1])
-    axB.set_title("Log-survival curvature", fontsize=11)
+    axB.set_title("Log-survival curvature (early, ms)", fontsize=11)
 
     # Prefer KM/ECDF from a raw synthetic sample if available
-    # Expecting a simple one-column CSV of event times in seconds
     sample_path = OUT_TIERB / "sample_B.csv"
     if sample_path.exists():
-        s = pd.read_csv(sample_path).to_numpy().ravel()
+        df_s = pd.read_csv(sample_path)
+        # expect a one-column CSV with header 't' (seconds); fallback to first column
+        s = (df_s["t"] if "t" in df_s.columns else df_s.iloc[:, 0]).to_numpy()
         km = km_log_survival(s)
-        t_emp, log_emp = km["t"], km["log_surv_emp"]
-        emp_label = "empirical (KM/ECDF)"
+        t_emp_s, log_emp = km["t"], km["log_surv_emp"]
     else:
-        # Fallback to precomputed column (keeps backward compatibility)
-        t_emp = curv["t"].to_numpy()
+        # Fallback to precomputed survival from curvature_demo.csv
+        t_emp_s = curv["t"].to_numpy()
         log_emp = curv["log_surv_emp"].to_numpy()
-        emp_label = "empirical"
 
-    axB.plot(t_emp, log_emp, marker="o", lw=0, ms=3, label=emp_label)
-    axB.plot(curv["t"], curv["log_surv_1exp"], lw=2, label="1-exp fit")
-    axB.plot(curv["t"], curv["log_surv_2exp"], lw=2, label="2-exp fit")
-    axB.set_xlabel("time (s)")
+    # Convert times to ms for plotting, and restrict to early-time window
+    t_model_s = curv["t"].to_numpy()
+    t_emp_ms = 1e3 * t_emp_s
+    t_model_ms = 1e3 * t_model_s
+
+    tau_slow_ms = max(60.0, min(200.0, float(f2["tau_slow"]) * 1e3 * 5.0))
+    m_emp = t_emp_ms <= tau_slow_ms
+    m_mod = t_model_ms <= tau_slow_ms
+
+    axB.plot(t_emp_ms[m_emp], log_emp[m_emp], marker="o", lw=0, ms=3,
+             label="empirical (KM/ECDF)")
+    axB.plot(t_model_ms[m_mod], curv["log_surv_1exp"].to_numpy()[m_mod], lw=2,
+             label="1-exp fit")
+    axB.plot(t_model_ms[m_mod], curv["log_surv_2exp"].to_numpy()[m_mod], lw=2,
+             label="2-exp fit")
+    axB.set_xlabel("time (ms)")
     axB.set_ylabel("log survival")
+    axB.set_xlim(0, tau_slow_ms)
     axB.legend(fontsize=9, frameon=False)
 
     # (C) CIs for (eta, tau_fast, tau_slow)
@@ -145,34 +152,39 @@ def main():
     ts_hat = float(f2["tau_slow"])
 
     labels = [r"η", r"τ$_{\rm fast}$ (ms)", r"τ$_{\rm slow}$ (ms)"]
-    centers = [eta_hat, tf_hat*1e3, ts_hat*1e3]
-    lo = [ci.loc["lo", "eta"], ci.loc["lo", "tau_fast"]*1e3, ci.loc["lo", "tau_slow"]*1e3]
-    hi = [ci.loc["hi", "eta"], ci.loc["hi", "tau_fast"]*1e3, ci.loc["hi", "tau_slow"]*1e3]
+    centers = [eta_hat, tf_hat * 1e3, ts_hat * 1e3]
+    lo = [ci.loc["lo", "eta"], ci.loc["lo", "tau_fast"] * 1e3, ci.loc["lo", "tau_slow"] * 1e3]
+    hi = [ci.loc["hi", "eta"], ci.loc["hi", "tau_fast"] * 1e3, ci.loc["hi", "tau_slow"] * 1e3]
 
     x = np.arange(len(labels))
-    axC.errorbar(x, centers, yerr=[np.array(centers)-np.array(lo), np.array(hi)-np.array(centers)],
-                 fmt="o", capsize=4)
+    axC.errorbar(
+        x, centers,
+        yerr=[np.array(centers) - np.array(lo), np.array(hi) - np.array(centers)],
+        fmt="o", capsize=4
+    )
     axC.set_xticks(x, labels)
-    axC.set_xlim(-0.5, len(labels)-0.5)
+    axC.set_xlim(-0.5, len(labels) - 0.5)
     axC.grid(axis="y", alpha=0.3)
 
     # neat summary box
     tau1 = float(f1["value"])
-    axC.text(0.02, 0.02,
-             f"1-exp τ̂ = {tau1*1e3:.1f} ms\n"
-             f"2-exp η̂ = {eta_hat:.2f}\n"
-             f"τ̂_fast = {tf_hat*1e3:.1f} ms\n"
-             f"τ̂_slow = {ts_hat*1e3:.1f} ms",
-             transform=axC.transAxes, va="bottom", fontsize=9)
+    axC.text(
+        0.02, 0.02,
+        (f"1-exp τ̂ = {tau1*1e3:.1f} ms\n"
+         f"2-exp η̂ = {eta_hat:.2f}\n"
+         f"τ̂_fast = {tf_hat*1e3:.1f} ms\n"
+         f"τ̂_slow = {ts_hat*1e3:.1f} ms"),
+        transform=axC.transAxes, va="bottom", fontsize=9
+    )
 
     fig.suptitle("Tier-B tempered mixtures: 1-exp vs 2-exp", fontsize=12, y=1.02)
     fig.tight_layout()
 
     for ext in ("png", "pdf"):
-        fig.savefig(OUT_FIG / f"tierB_tempered_modelcomp.{ext}", bbox_inches="tight", dpi=300)
+        fig.savefig(OUT_FIG / f"tierB_tempered_modelcomp.{ext}",
+                    bbox_inches="tight", dpi=300)
     print(f"Saved figures → {OUT_FIG}/tierB_tempered_modelcomp.[png|pdf]")
 
 
 if __name__ == "__main__":
     main()
-
