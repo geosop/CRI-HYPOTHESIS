@@ -1,0 +1,66 @@
+name: Make sample_B.csv
+
+on:
+  workflow_dispatch:
+    inputs:
+      N:
+        description: "Number of events to draw"
+        default: "2000"
+      eta:
+        description: "Mixture weight for fast component"
+        default: "0.35"
+      tau_fast_ms:
+        description: "Tau_fast (milliseconds)"
+        default: "12"
+      tau_slow_s:
+        description: "Tau_slow (seconds)"
+        default: "120"
+      seed:
+        description: "RNG seed"
+        default: "2025"
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure output folder
+        run: mkdir -p tierB_tempered/output
+
+      - name: Generate tierB_tempered/output/sample_B.csv
+        env:
+          N: ${{ inputs.N }}
+          eta: ${{ inputs.eta }}
+          tau_fast_ms: ${{ inputs.tau_fast_ms }}
+          tau_slow_s: ${{ inputs.tau_slow_s }}
+          seed: ${{ inputs.seed }}
+        run: |
+          python - <<'PY'
+          import os, numpy as np, pandas as pd
+          N = int(os.getenv("N", "2000"))
+          eta = float(os.getenv("eta", "0.35"))
+          tau_fast = float(os.getenv("tau_fast_ms", "12"))/1000.0  # seconds
+          tau_slow = float(os.getenv("tau_slow_s", "120"))         # seconds
+          seed = int(os.getenv("seed", "2025"))
+          rng = np.random.default_rng(seed)
+          m = rng.random(N) < eta
+          t = np.empty(N)
+          t[m]  = rng.exponential(tau_fast,  m.sum())
+          t[~m] = rng.exponential(tau_slow, (~m).sum())
+          # administrative right-censor at 600 s (Tier-B 5–10 min window)
+          t = t[t <= 600.0]
+          df = pd.DataFrame({"t": t})
+          df.to_csv("tierB_tempered/output/sample_B.csv", index=False)
+          print(f"Wrote {len(df)} rows to tierB_tempered/output/sample_B.csv")
+          PY
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: bot/add-sample-b
+          title: "Add sample_B.csv (Tier-B tempered synthetic event times)"
+          commit-message: "Add tierB_tempered/output/sample_B.csv (generated)"
+          add-paths: |
+            tierB_tempered/output/sample_B.csv
