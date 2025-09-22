@@ -50,6 +50,10 @@ if [[ "$FIGS_ONLY" != "1" ]]; then
   python decay/simulate_decay.py
   python decay/fit_decay.py
 
+  echo ""
+  echo "🔬 2b) Tier-B tempered mixtures"
+  python tierB_tempered/simulate_and_fit.py
+
   echo
   echo "🔬 3) Logistic‐gating simulation & fitting"
   python logistic_gate/simulate_logistic.py
