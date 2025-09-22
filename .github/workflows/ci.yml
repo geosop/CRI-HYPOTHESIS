@@ -8,7 +8,7 @@ jobs:
   figures:
     runs-on: ubuntu-latest
     env:
-      MPLBACKEND: Agg   # headless matplotlib
+      MPLBACKEND: Agg  # headless matplotlib
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,62 +37,18 @@ jobs:
       - name: Ensure runner can execute the script
         run: chmod +x run_all.sh
 
-      # Sanitize conda-style file URLs out of requirements before install
-      - name: Sanitize Python requirements (strip local conda build paths)
-        run: |
-          set -euo pipefail
-          SRC=""
-          OUT=""
-          if [ -f requirements.pip.txt ]; then
-            echo "Clean requirements.pip.txt already present at repo root; no sanitize needed."
-            exit 0
-          elif [ -f utilities/requirements.pip.txt ]; then
-            echo "Clean utilities/requirements.pip.txt already present; no sanitize needed."
-            exit 0
-          elif [ -f requirements.txt ]; then
-            SRC="requirements.txt"; OUT="requirements.pip.txt"
-          elif [ -f utilities/requirements.txt ]; then
-            SRC="utilities/requirements.txt"; OUT="utilities/requirements.pip.txt"
-          else
-            echo "No requirements file found to sanitize."
-            exit 0
-          fi
-
-          echo "Sanitizing $SRC -> $OUT"
-          awk '
-            /^[[:space:]]*#/ {print; next}
-            /^[[:space:]]*$/ {print; next}
-            /^[[:space:]]*(-e|--editable)[[:space:]]/ {next}
-            /@ file:\/\// {
-              if (match($0,/^[[:space:]]*([A-Za-z0-9_.-]+)/,m)) print m[1];
-              next
-            }
-            /feedstock_root\/build_artifacts/ {
-              if (match($0,/^[[:space:]]*([A-Za-z0-9_.-]+)/,m)) print m[1];
-              next
-            }
-            {print}
-          ' "$SRC" > "$OUT"
-          echo "Wrote sanitized $OUT"
-
-      - name: Install Python deps
+      - name: Install Python deps (pip-only for CI)
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.pip.txt ]; then
-            echo "Installing from root requirements.pip.txt"
-            pip install -r requirements.pip.txt
-          elif [ -f utilities/requirements.pip.txt ]; then
+          if [ -f utilities/requirements.pip.txt ]; then
             echo "Installing from utilities/requirements.pip.txt"
             pip install -r utilities/requirements.pip.txt
-          elif [ -f requirements.txt ]; then
-            echo "Installing from root requirements.txt (unsanitized)"
-            pip install -r requirements.txt
-          elif [ -f utilities/requirements.txt ]; then
-            echo "Installing from utilities/requirements.txt (unsanitized)"
-            pip install -r utilities/requirements.txt
+          elif [ -f requirements.pip.txt ]; then
+            echo "Installing from requirements.pip.txt"
+            pip install -r requirements.pip.txt
           else
-            echo "No requirements*.txt found; installing minimal deps"
-            pip install numpy matplotlib pyyaml
+            echo "No pip-only requirements file found; installing minimal deps"
+            pip install numpy matplotlib PyYAML
           fi
 
       - name: Build figures (incl. TikZ → PDF/PNG)
