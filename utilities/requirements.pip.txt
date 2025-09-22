@@ -11,6 +11,11 @@ h5py
 mne==1.10.1
 python-picard>=0.7
 scikit-learn>=1.4
+# power analysis deps
+statsmodels>=0.14.1,<0.15
+# patsy is a transitive dep of statsmodels:
+patsy>=0.5.4
+
 
 # for OpenCV in the figure scripts, we use headless + a real tag:
 opencv-python-headless==4.11.0.86
