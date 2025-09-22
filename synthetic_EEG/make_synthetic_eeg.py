@@ -25,6 +25,7 @@ import numpy as np
 import mne
 import pandas as pd
 
+
 def load_params():
     """Read YAML parameters from default_params.yml in the same folder."""
     here = os.path.dirname(__file__)
@@ -32,6 +33,7 @@ def load_params():
     with open(cfg_path, 'r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
     return cfg['synthetic_EEG']
+
 
 # -------------------------------------------------------------------------
 # Noise helpers
@@ -47,6 +49,7 @@ def pink_noise(n, alpha=1.0, rng=None):
     colored = np.fft.irfft(np.fft.rfft(white) / denom)
     return colored / np.std(colored)
 
+
 def inject_spindle(sig, fs, onset_s, dur_s, freq=14.0, amp=2.0):
     """Inject a Hann-windowed sine burst into *sig* in place."""
     t = np.arange(0, dur_s, 1 / fs)
@@ -55,10 +58,10 @@ def inject_spindle(sig, fs, onset_s, dur_s, freq=14.0, amp=2.0):
     i0 = int(onset_s * fs)
     sig[i0:i0 + len(burst)] += burst
 
+
 # -------------------------------------------------------------------------
 # Main synthetic generator
 # -------------------------------------------------------------------------
-
 
 def create_raw(params, tier_seed, inject=False):
     """Create an MNE RawArray with synthetic EEG + optional spindles."""
@@ -68,9 +71,9 @@ def create_raw(params, tier_seed, inject=False):
     rng    = np.random.default_rng(tier_seed)
 
     data = []
-    for i in range(n_ch):
-        sig = 0.3 * pink_noise(n_samp, alpha=params['pink_alpha'], rng=rng) \
-            + 0.7 * rng.standard_normal(n_samp)
+    for _ in range(n_ch):
+        sig = (0.3 * pink_noise(n_samp, alpha=params['pink_alpha'], rng=rng)
+               + 0.7 * rng.standard_normal(n_samp))
         sig = sig / np.std(sig)
         sig = sig * 50e-6  # Scale std to 50 μV (typical EEG)
         data.append(sig)
@@ -84,7 +87,7 @@ def create_raw(params, tier_seed, inject=False):
     data.append(rng.standard_normal(n_samp) * 50e-6)
 
     all_data = np.vstack(data)
-    print(f"DEBUG: EEG ptp min={all_data.min()*1e6:.1f}µV, max={all_data.max()*1e6:.1f}µV")
+    print(f"DEBUG: EEG amplitude min={np.min(all_data)*1e6:.1f}µV, max={np.max(all_data)*1e6:.1f}µV")
 
     if inject:
         for onset in params['spindle_onsets_s']:
@@ -110,12 +113,13 @@ def create_raw(params, tier_seed, inject=False):
 def save_events(params, out_dir):
     """Save spindle onsets to events.tsv."""
     df = pd.DataFrame({
-        'onset_s':   params['spindle_onsets_s'],
+        'onset_s':    params['spindle_onsets_s'],
         'duration_s': params['spindle_duration_s'],
         'trial_type': 'spindle'
     })
     df.to_csv(os.path.join(out_dir, 'events.tsv'),
               sep='\t', index=False)
+
 
 def main():
     # ─── reproducibility ────────────────────────────────────────────────────
@@ -129,17 +133,11 @@ def main():
     out_dir = os.path.join(here, 'output')
     os.makedirs(out_dir, exist_ok=True)
 
-
-
-
     # Tier A with spindles
     raw_A = create_raw(params, tier_seed=1, inject=True)
     raw_A.save(os.path.join(out_dir, 'TierA_sleep_raw.fif'),
                overwrite=True, verbose=False)
-    # At the end of main()
-    raw_A = create_raw(params, tier_seed=1, inject=True)
-    raw_A.save(os.path.join(out_dir, 'TierA_sleep_raw.fif'), overwrite=True, verbose=False)
-    
+
     # Tier B baseline
     raw_B = create_raw(params, tier_seed=2, inject=False)
     raw_B.save(os.path.join(out_dir, 'TierB_wake_raw.fif'),
@@ -147,12 +145,16 @@ def main():
 
     # Save spindle events
     save_events(params, out_dir)
-    
-    ptp = raw_A.get_data(picks='eeg').ptp(axis=1)
-    print(f"TierA EEG ptp per channel: min={ptp.min()*1e6:.1f}µV, max={ptp.max()*1e6:.1f}µV")
-    
+
+    # NumPy 2.x compatible peak-to-peak
+    data_A = raw_A.get_data(picks='eeg')
+    ptp = np.ptp(data_A, axis=1)
+    print(f"TierA EEG ptp per channel: min={np.min(ptp)*1e6:.1f}µV, max={np.max(ptp)*1e6:.1f}µV")
+
     print(f"Synthetic EEG saved to {out_dir}")
+
 
 if __name__ == '__main__':
     main()
+
 
