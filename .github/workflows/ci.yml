@@ -1,4 +1,5 @@
 name: build-and-test
+
 on:
   push:
   pull_request:
@@ -7,11 +8,13 @@ jobs:
   figures:
     runs-on: ubuntu-latest
     env:
-      MPLBACKEND: Agg
+      MPLBACKEND: Agg   # headless matplotlib
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -19,10 +22,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            texlive-latex-extra texlive-pictures texlive-fonts-recommended latexmk \
+            texlive-latex-extra texlive-pictures texlive-fonts-recommended \
+            texlive-science texlive-fonts-extra latexmk \
             poppler-utils imagemagick
 
-      - name: Ensure runner can execute run_all.sh
+      - name: Show tree (top level)
+        run: |
+          ls -la
+          echo "---- figures/ ----"
+          ls -la figures || true
+          echo "---- utilities/ ----"
+          ls -la utilities || true
+
+      - name: Ensure runner can execute the script
         run: chmod +x run_all.sh
 
       - name: Install Python deps
@@ -33,6 +45,13 @@ jobs:
       - name: Build figures (incl. TikZ → PDF/PNG)
         run: |
           CRI_FIGS_ONLY=1 ./run_all.sh
+
+      - name: List outputs before smoke test
+        run: |
+          echo "---- figures/output/ ----"
+          ls -la figures/output || true
+          echo "---- find figures (2 levels) ----"
+          find figures -maxdepth 2 -type f -printf "%p\t%k KB\n" | sort
 
       - name: Stamp build metadata
         run: |
