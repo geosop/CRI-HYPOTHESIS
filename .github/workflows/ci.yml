@@ -37,7 +37,7 @@ jobs:
       - name: Ensure runner can execute the script
         run: chmod +x run_all.sh
 
-      # 👉 NEW: sanitize conda-style paths in requirements before install
+      # Sanitize conda-style file URLs out of requirements before install
       - name: Sanitize Python requirements (strip local conda build paths)
         run: |
           set -euo pipefail
@@ -59,37 +59,21 @@ jobs:
           fi
 
           echo "Sanitizing $SRC -> $OUT"
-          python - "$SRC" "$OUT" <<'PY'
-import re, sys, pathlib
-src = pathlib.Path(sys.argv[1])
-dst = pathlib.Path(sys.argv[2])
-
-lines = src.read_text().splitlines()
-out = []
-for raw in lines:
-    line = raw.strip()
-    if not line or line.startswith("#"):
-        out.append(raw)
-        continue
-
-    # Drop editable local installs
-    if line.startswith("-e ") or line.startswith("--editable"):
-        continue
-
-    # Replace direct local file URLs ("pkg @ file:///...") with just the package name
-    if "@ file://" in line or line.startswith("file://") or "feedstock_root/build_artifacts" in line:
-        m = re.match(r'\s*([A-Za-z0-9_.-]+)\s*@\s*file://.*', line)
-        if m:
-            out.append(m.group(1))
-        # If it's only a file:// URL with no package name, skip it entirely
-        continue
-
-    out.append(raw)
-
-dst.parent.mkdir(parents=True, exist_ok=True)
-dst.write_text("\n".join(out) + "\n")
-print(f"Wrote sanitized requirements to {dst}")
-PY
+          awk '
+            /^[[:space:]]*#/ {print; next}
+            /^[[:space:]]*$/ {print; next}
+            /^[[:space:]]*(-e|--editable)[[:space:]]/ {next}
+            /@ file:\/\// {
+              if (match($0,/^[[:space:]]*([A-Za-z0-9_.-]+)/,m)) print m[1];
+              next
+            }
+            /feedstock_root\/build_artifacts/ {
+              if (match($0,/^[[:space:]]*([A-Za-z0-9_.-]+)/,m)) print m[1];
+              next
+            }
+            {print}
+          ' "$SRC" > "$OUT"
+          echo "Wrote sanitized $OUT"
 
       - name: Install Python deps
         run: |
