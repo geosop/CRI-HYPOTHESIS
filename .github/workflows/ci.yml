@@ -51,9 +51,9 @@ jobs:
             pip install numpy matplotlib PyYAML
           fi
 
-      - name: Build figures (incl. TikZ → PDF/PNG)
-        run: |
-          CRI_FIGS_ONLY=1 ./run_all.sh
+      # 🔧 Key change: run the full pipeline so inputs like decay/output/decay_band.csv exist
+      - name: Build everything (data + figures)
+        run: ./run_all.sh
 
       - name: List outputs before smoke test
         run: |
