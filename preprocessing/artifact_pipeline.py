@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """
+Created on Thu Jul  3 17:10:18 2025
+
+@author: ADMIN
+
 EEG preprocessing: filtering, bad-channel detection, interpolation, ICA
 (Picard if available, else FastICA).
 
