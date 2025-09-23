@@ -302,7 +302,7 @@ def main():
     # Keep legend order as low, mid, high
     handles, leg_labels = ax_b.get_legend_handles_labels()
     order = [leg_labels.index("low a"), leg_labels.index("mid a"), leg_labels.index("high a")]
-    ax_b.legend([handles[i] for i in order], [leg_labels[i] for i in order]], frameon=False)
+    ax_b.legend([handles[i] for i in order], [leg_labels[i] for i in order], frameon=False)
   
     # --- τ95 markers: vertical blue guides + bottom-anchored labels with auto-offset
     vline_kw = dict(color="tab:blue", ls=":", lw=1.15, zorder=1)
