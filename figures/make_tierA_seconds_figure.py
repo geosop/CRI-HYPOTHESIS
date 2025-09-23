@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sun Sep 21 15:41:48 2025
-
-@author: ADMIN
+figures/make_tierA_seconds_figure.py
 
 Tier-A (seconds-scale) synthetic simulation for CRI — slope panel + gate-saturation check.
 
@@ -10,15 +8,14 @@ Outputs:
   figures/output/TierA_decay_loglinear.pdf/.png
   figures/output/TierA_gate_saturation.pdf/.png
 
-CRI alignment:
-- Gate-on selection for slope fit uses a tight threshold (default 0.98) and
-  requires enough gate-on samples at each τ_f before using that point.
-- Gate-saturation panel normalizes per arousal quantile:
-    G_norm = (G - p0_q) / (pinf_q - p0_q), clipped to [0, 1],
-  where p0_q and pinf_q are robust medians from early/late τ_f windows.
-- τ95 (earliest τ_f with G_norm ≥ 0.95) is marked for each quantile.
+CRI alignment highlights:
+- Gate-on selection for the slope fit uses a strict, per-τ criterion:
+    median raw G(τ) ≥ 0.98  AND  at least 800 gate-on trials at τ.
+- Slope fit is a weighted linear regression of ln A_pre(τ) vs τ using weights sqrt(N_gate-on(τ)).
+- Synthetic defaults are tuned for seconds-scale τ_fut and high SNR; override via default_params.yml (TierA: ...).
+- Gate-saturation panel shows normalized medians by arousal quantile and marks τ95 (in seconds).
 
-You can override defaults with a TierA section in default_params.yml.
+Author: ADMIN
 """
 
 import os
@@ -37,30 +34,40 @@ except Exception:
 # Defaults (can be overridden)
 # -----------------------------
 DEFAULTS = dict(
-    T0=1.0,                    # seconds-scale horizon
-    N_TAU=20,                  # number of tau_f grid points in [0, T0]
-    tau_fut=0.10,              # s, the “future” time constant
-    p_base=0.20,               # baseline in P-space
-    B_a=0.50,                  # arousal bump amplitude
-    mu_a=0.0,                  # arousal index center
-    sigma_a=1.0,               # arousal width
-    alpha=0.05,                # logistic scale
-    gate_thresh=0.98,          # *** tighter selection for slope fit ***
-    min_gate_frac=0.25,        # require ≥ this fraction of trials gate-on at a τ_f
-    min_gate_n=50,             # ... and at least this many trials gate-on
-    N_TRIALS=5000,             # number of trials
-    a_state_mean=0.0,          # mean arousal (align to mu_a)
-    a_state_sd=0.75,           # arousal spread
-    A0=1.0,                    # signal scale
-    C_true=0.05,               # additive baseline to remove before log
-    x_noise=0.90,              # noise suppression index (Tier-A high)
-    sigma0=0.30,               # baseline noise scale
-    seed=42,                   # RNG seed
-    arousal_quantiles=(0.2, 0.5, 0.8),  # for gate-saturation grouping
-    # normalization windows for panel (b)
-    baseline_max_s=0.05,       # “early” window upper bound (s) for p0
-    plateau_frac=0.90,         # use last 10% of τ_f range for pinf
-    sat_level=0.95             # dashed line + τ95 definition
+    # Experiment geometry (Tier-A seconds regime)
+    T0=1.0,                   # horizon in seconds
+    N_TAU=30,                 # number of τ_f grid points in [0, T0]
+
+    # Mechanistic "truth"
+    tau_fut=0.28,             # seconds; CRI-consistent seconds-scale constant
+
+    # Gate parameters G(P(τ_f) - p0(a))
+    p_base=0.15,
+    B_a=0.40,
+    mu_a=0.0,
+    sigma_a=1.0,
+    alpha=0.08,               # slightly softened logistic for broader gate-on window
+
+    # Gate-on logic for the slope fit (STRICT)
+    gate_thresh=0.98,         # threshold for "gate-on"
+    min_gate_n=800,           # require at least this many gate-on trials at a τ
+    min_gate_frac=0.15,       # and at least this fraction of all trials
+
+    # Trials & noise (strong SNR in gate-on band)
+    N_TRIALS=20000,
+    a_state_mean=0.0,
+    a_state_sd=0.75,
+    A0=1.0,
+    C_true=0.03,              # additive baseline; removed before log
+    x_noise=0.995,            # strong suppression (Tier-A high-precision)
+    sigma0=0.05,              # baseline noise scale
+    seed=42,
+
+    # Gate-saturation (panel b)
+    arousal_quantiles=(0.2, 0.5, 0.8),
+    baseline_max_s=0.05,      # early window for p0 (seconds)
+    plateau_frac=0.90,        # late window start fraction for p_inf
+    sat_level=0.95            # dashed level and τ95 definition
 )
 
 def load_yaml_overrides(path="default_params.yml"):
@@ -86,6 +93,7 @@ def P_of_tau(tau, T0):
     return tau / T0
 
 def simulate_trial_amplitude(a, tau_vals, params, rng):
+    """Return (A_pre, G_raw) arrays for one trial across τ_f grid."""
     p0a = p0_of_a(a, params["p_base"], params["B_a"], params["mu_a"], params["sigma_a"])
     P_vals = P_of_tau(tau_vals, params["T0"])
     G_vals = G_of_x(P_vals - p0a, params["alpha"])
@@ -98,27 +106,36 @@ def simulate_trial_amplitude(a, tau_vals, params, rng):
 # Robust gate normalization (panel b)
 # -----------------------------
 def robust_p0_pinf(y, t, baseline_max_s=0.05, plateau_frac=0.90):
-    """Median p0 from early τ_f, median pinf from last (1-plateau_frac) fraction."""
+    """Median p0 from early τ_f, median p_inf from the last (1 - plateau_frac) tail."""
     y = np.asarray(y, float)
     t = np.asarray(t, float)
     # early window
     m0 = t <= baseline_max_s
-    p0 = np.nanmedian(y[m0]) if np.any(m0) else np.nanmedian(y[:max(1, int(0.05*len(y)))])
-    # plateau window
-    m1 = t >= plateau_frac * t.max()
-    pinf = np.nanmedian(y[m1]) if np.any(m1) else np.nanmedian(y[-max(1, int(0.1*len(y))):])
-    if not np.isfinite(pinf) or pinf <= p0:
-        pinf = p0 + max(1e-6, float(np.nanmax(y) - p0))
-    return p0, pinf
+    if np.any(m0):
+        p0 = np.nanmedian(y[m0])
+    else:
+        k = max(1, int(0.05 * len(y)))
+        p0 = np.nanmedian(y[:k])
+    # late window
+    m1 = t >= plateau_frac * np.nanmax(t)
+    if np.any(m1):
+        p_inf = np.nanmedian(y[m1])
+    else:
+        k = max(1, int(0.1 * len(y)))
+        p_inf = np.nanmedian(y[-k:])
+    if not np.isfinite(p_inf) or p_inf <= p0:
+        p_inf = p0 + max(1e-6, float(np.nanmax(y) - p0))
+    return p0, p_inf
 
 def normalize_gate(y, t, baseline_max_s, plateau_frac):
-    p0, pinf = robust_p0_pinf(y, t, baseline_max_s, plateau_frac)
-    G = (np.asarray(y, float) - p0) / (pinf - p0 + 1e-12)
-    return np.clip(G, 0.0, 1.0), p0, pinf
+    p0, p_inf = robust_p0_pinf(y, t, baseline_max_s, plateau_frac)
+    G = (np.asarray(y, float) - p0) / (p_inf - p0 + 1e-12)
+    return np.clip(G, 0.0, 1.0), p0, p_inf
 
 def tau_at_level(t, y, thr):
-    i = np.where(y >= thr)[0]
-    return float(t[i[0]]) if i.size else np.nan
+    """Earliest t where y >= thr; NaN if none."""
+    idx = np.where(y >= thr)[0]
+    return float(t[idx[0]]) if idx.size else np.nan
 
 # -----------------------------
 # Main
@@ -138,12 +155,13 @@ def main():
     rng = np.random.default_rng(params["seed"])
     os.makedirs(args.outdir, exist_ok=True)
 
-    # τ_f grid
+    # τ_f grid (seconds)
     tau_grid = np.linspace(0.0, params["T0"], int(params["N_TAU"]))
     N_TAU = tau_grid.size
 
     # Simulate trials
-    a_samples = rng.normal(loc=params["a_state_mean"], scale=params["a_state_sd"], size=params["N_TRIALS"])
+    a_samples = rng.normal(loc=params["a_state_mean"], scale=params["a_state_sd"],
+                           size=params["N_TRIALS"])
     A_trials = np.zeros((params["N_TRIALS"], N_TAU))
     G_trials = np.zeros((params["N_TRIALS"], N_TAU))
     for i, a in enumerate(a_samples):
@@ -152,30 +170,37 @@ def main():
         G_trials[i] = G_i
 
     # ============================================================
-    # Panel (a): log-linear fit on gate-on trials (robust selection)
+    # Panel (a): CRI-grade slope fit with strict gate-on selection
     # ============================================================
-    A_bc = A_trials - params["C_true"]  # remove additive baseline before log
-    A_med = np.full(N_TAU, np.nan)
-    used_mask = np.zeros(N_TAU, dtype=bool)
+    # Per-τ diagnostics
+    G_med = np.median(G_trials, axis=0)                              # median raw G at each τ
+    n_on  = (G_trials >= params["gate_thresh"]).sum(axis=0)          # # gate-on trials at τ
+    need_n = max(params["min_gate_n"], int(params["min_gate_frac"] * params["N_TRIALS"]))
+    gate_mask = (G_med >= params["gate_thresh"]) & (n_on >= need_n)  # τ usable for fit
 
+    # Baseline-corrected amplitude medians (over gate-on trials only)
+    A_bc = A_trials - params["C_true"]
+    A_med_gate = np.full(N_TAU, np.nan)
     for j in range(N_TAU):
-        gate_on = G_trials[:, j] >= params["gate_thresh"]
-        if gate_on.sum() >= max(params["min_gate_n"], int(params["min_gate_frac"] * params["N_TRIALS"])):
-            vals = A_bc[gate_on, j]
+        if gate_mask[j]:
+            sel = (G_trials[:, j] >= params["gate_thresh"])
+            vals = A_bc[sel, j]
             vals = vals[vals > 0]  # positivity for log
             if vals.size:
-                A_med[j] = np.median(vals)
-                used_mask[j] = True
+                A_med_gate[j] = np.median(vals)
 
-    tau_fit = tau_grid[used_mask & np.isfinite(A_med) & (A_med > 0)]
-    y_fit = np.log(A_med[used_mask & np.isfinite(A_med) & (A_med > 0)])
+    use = gate_mask & np.isfinite(A_med_gate) & (A_med_gate > 0)
+    tau_fit = tau_grid[use]
+    y_fit   = np.log(A_med_gate[use])
 
+    # Weighted linear fit (weights ~ sqrt(number of gate-on trials))
     slope = np.nan
     slope_se = np.nan
     intercept = np.nan
     if tau_fit.size >= 2:
-        coeffs, cov = np.polyfit(tau_fit, y_fit, deg=1, cov=True)
-        slope, intercept = coeffs[0], coeffs[1]
+        w = np.sqrt(np.maximum(n_on[use], 1))
+        coef, cov = np.polyfit(tau_fit, y_fit, 1, w=w, cov=True)
+        slope, intercept = coef
         slope_se = float(np.sqrt(max(cov[0, 0], 0.0)))
     z = 1.96
     slope_ci = (slope - z * slope_se, slope + z * slope_se) if np.isfinite(slope) else (np.nan, np.nan)
@@ -192,7 +217,7 @@ def main():
                    f"(95% CI {slope_ci[0]:.3f},{slope_ci[1]:.3f}); "
                    f"$\\widehat{{\\tau}}_{{\\mathrm{{fut}}}}$={tau_fut_hat:.3f}s")
     else:
-        title_a = "log-linear fit (insufficient gate-on points)"
+        title_a = "log-linear fit (insufficient gate-on τ)"
     ax_a.set_title(title_a)
     ax_a.set_xlabel(r"$\tau_f$ (s)")
     ax_a.set_ylabel(r"$\ln A_{\mathrm{pre}}(\tau_f)$")
@@ -212,16 +237,16 @@ def main():
     bins = (-np.inf, q_edges[0], q_edges[2], np.inf)
     labels = ["low a", "mid a", "high a"]
 
-    # median gate per τ_f within each arousal bin
+    # Median raw gate per τ_f within each arousal bin
     G_medians = []
     for b in range(3):
         in_bin = (a_samples > bins[b]) & (a_samples <= bins[b+1])
         G_medians.append(np.median(G_trials[in_bin, :], axis=0))
 
-    # normalize per quantile (robust)
+    # Normalize per quantile (robust) & find τ95 in SECONDS
     G_norms, taus_95 = [], []
     for med in G_medians:
-        Gn, p0, pinf = normalize_gate(
+        Gn, p0, p_inf = normalize_gate(
             med, tau_grid,
             baseline_max_s=params["baseline_max_s"],
             plateau_frac=params["plateau_frac"]
@@ -229,18 +254,18 @@ def main():
         G_norms.append(Gn)
         taus_95.append(tau_at_level(tau_grid, Gn, params["sat_level"]))
 
-    # plot
+    # Plot gate saturation
     fig_b, ax_b = plt.subplots(figsize=(5.0, 4.0))
     for Gn, lab in zip(G_norms, labels):
         ax_b.plot(tau_grid, Gn, label=lab)
     ax_b.axhline(params["sat_level"], linestyle='--', linewidth=1.0)
 
-    # τ95 markers (reviewer-friendly)
-    for τ, lab in zip(taus_95, labels):
-        if np.isfinite(τ):
-            ax_b.axvline(τ, ls=":", lw=0.8, alpha=0.6)
-            ax_b.text(τ, params["sat_level"] + 0.02,
-                      f"τ₉₅({lab})={τ*1e3:.0f} ms",
+    # τ95 markers (in SECONDS, not ms)
+    for t95, lab in zip(taus_95, labels):
+        if np.isfinite(t95):
+            ax_b.axvline(t95, ls=":", lw=0.8, alpha=0.6)
+            ax_b.text(t95, params["sat_level"] + 0.02,
+                      f"τ95({lab}) = {t95:.2f} s",
                       rotation=90, va="bottom", ha="center", fontsize=7)
 
     ax_b.set_title(r"Gate saturation: normalized $G$ across arousal quantiles")
