@@ -9,26 +9,29 @@ Outputs:
   figures/output/TierA_gate_saturation.pdf/.png
 
 CRI alignment highlights:
-- Gate-on selection for the slope fit uses a strict, per-τ criterion:
-    median raw G(τ) ≥ 0.98  AND  at least 800 gate-on trials at τ.
-- Slope fit is a weighted linear regression of ln A_pre(τ) vs τ using weights sqrt(N_gate-on(τ)).
-- Synthetic defaults are tuned for seconds-scale τ_fut and high SNR; override via default_params.yml (TierA: ...).
-- Gate-saturation panel shows normalized medians by arousal quantile and marks τ95 (in seconds).
+- Slope panel uses a STRICT per-τ gate-on rule:
+    median raw G(τ) ≥ gate_thresh  AND  at least min_gate_n & min_gate_frac trials gate-on.
+- ln A_pre(τ) vs τ is fit by a WEIGHTED linear regression (weights = sqrt(# gate-on at τ)).
+- Fit is (optionally) restricted to the first window after “gate-on” to avoid late noise-floor points.
+- Gate-saturation panel normalizes medians by arousal quantile and marks τ95 (in seconds).
 
 Author: ADMIN
 """
 
+from __future__ import annotations
 import os
 import sys
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Optional YAML overrides
 try:
     import yaml
     HAVE_YAML = True
 except Exception:
     HAVE_YAML = False
+
 
 # -----------------------------
 # Defaults (can be overridden)
@@ -46,14 +49,18 @@ DEFAULTS = dict(
     B_a=0.40,
     mu_a=0.0,
     sigma_a=1.0,
-    alpha=0.08,               # slightly softened logistic for broader gate-on window
+    alpha=0.08,               # softened logistic for a broader gate-on window
 
     # Gate-on logic for the slope fit (STRICT)
     gate_thresh=0.98,         # threshold for "gate-on"
     min_gate_n=800,           # require at least this many gate-on trials at a τ
     min_gate_frac=0.15,       # and at least this fraction of all trials
 
-    # Trials & noise (strong SNR in gate-on band)
+    # (Optional) restrict fit to an early window after turn-on (helps avoid ultra-late noise floor)
+    use_fit_window=True,
+    fit_window_s=0.40,        # fit over [τ_on, τ_on + fit_window_s]
+
+    # Trials & noise (high SNR in gate-on band)
     N_TRIALS=20000,
     a_state_mean=0.0,
     a_state_sd=0.75,
@@ -70,15 +77,17 @@ DEFAULTS = dict(
     sat_level=0.95            # dashed level and τ95 definition
 )
 
-def load_yaml_overrides(path="default_params.yml"):
+
+def load_yaml_overrides(path: str) -> dict:
     if not HAVE_YAML or not os.path.exists(path):
         return {}
     try:
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             y = yaml.safe_load(f) or {}
         return y.get("TierA", {}) or {}
     except Exception:
         return {}
+
 
 # -----------------------------
 # Model pieces
@@ -102,6 +111,7 @@ def simulate_trial_amplitude(a, tau_vals, params, rng):
     noise = rng.normal(loc=0.0, scale=sigma_noise, size=clean.shape)
     return clean + params["C_true"] + noise, G_vals
 
+
 # -----------------------------
 # Robust gate normalization (panel b)
 # -----------------------------
@@ -111,18 +121,10 @@ def robust_p0_pinf(y, t, baseline_max_s=0.05, plateau_frac=0.90):
     t = np.asarray(t, float)
     # early window
     m0 = t <= baseline_max_s
-    if np.any(m0):
-        p0 = np.nanmedian(y[m0])
-    else:
-        k = max(1, int(0.05 * len(y)))
-        p0 = np.nanmedian(y[:k])
+    p0 = np.nanmedian(y[m0]) if np.any(m0) else np.nanmedian(y[:max(1, int(0.05 * len(y)))])
     # late window
     m1 = t >= plateau_frac * np.nanmax(t)
-    if np.any(m1):
-        p_inf = np.nanmedian(y[m1])
-    else:
-        k = max(1, int(0.1 * len(y)))
-        p_inf = np.nanmedian(y[-k:])
+    p_inf = np.nanmedian(y[m1]) if np.any(m1) else np.nanmedian(y[-max(1, int(0.1 * len(y))):])
     if not np.isfinite(p_inf) or p_inf <= p0:
         p_inf = p0 + max(1e-6, float(np.nanmax(y) - p0))
     return p0, p_inf
@@ -137,6 +139,7 @@ def tau_at_level(t, y, thr):
     idx = np.where(y >= thr)[0]
     return float(t[idx[0]]) if idx.size else np.nan
 
+
 # -----------------------------
 # Main
 # -----------------------------
@@ -146,9 +149,13 @@ def main():
     ap.add_argument("--seed", type=int, default=None, help="override RNG seed")
     args = ap.parse_args()
 
+    # Resolve paths
+    here = os.path.dirname(__file__)
+    yaml_path = os.path.join(here, "default_params.yml")
+
     # Params
     params = DEFAULTS.copy()
-    params.update(load_yaml_overrides("default_params.yml"))
+    params.update(load_yaml_overrides(yaml_path))
     if args.seed is not None:
         params["seed"] = args.seed
 
@@ -190,6 +197,16 @@ def main():
                 A_med_gate[j] = np.median(vals)
 
     use = gate_mask & np.isfinite(A_med_gate) & (A_med_gate > 0)
+
+    # (Optional) restrict to first window after turn-on for stability
+    if params.get("use_fit_window", True) and np.any(use):
+        # find earliest τ where *median* gate crosses threshold
+        on_idx = np.argmax(G_med >= params["gate_thresh"]) if np.any(G_med >= params["gate_thresh"]) else None
+        if on_idx is not None:
+            tau_on = tau_grid[on_idx]
+            mwin = (tau_grid >= tau_on) & (tau_grid <= min(params["T0"], tau_on + params.get("fit_window_s", 0.4)))
+            use = use & mwin
+
     tau_fit = tau_grid[use]
     y_fit   = np.log(A_med_gate[use])
 
@@ -199,8 +216,12 @@ def main():
     intercept = np.nan
     if tau_fit.size >= 2:
         w = np.sqrt(np.maximum(n_on[use], 1))
-        coef, cov = np.polyfit(tau_fit, y_fit, 1, w=w, cov=True)
-        slope, intercept = coef
+        # center τ for better numerical stability
+        t0 = np.mean(tau_fit)
+        X = tau_fit - t0
+        coef, cov = np.polyfit(X, y_fit, 1, w=w, cov=True)
+        slope, b0 = coef
+        intercept = b0 - slope * t0  # back-transform intercept
         slope_se = float(np.sqrt(max(cov[0, 0], 0.0)))
     z = 1.96
     slope_ci = (slope - z * slope_se, slope + z * slope_se) if np.isfinite(slope) else (np.nan, np.nan)
@@ -260,7 +281,7 @@ def main():
         ax_b.plot(tau_grid, Gn, label=lab)
     ax_b.axhline(params["sat_level"], linestyle='--', linewidth=1.0)
 
-    # τ95 markers (in SECONDS, not ms)
+    # τ95 markers (in SECONDS)
     for t95, lab in zip(taus_95, labels):
         if np.isfinite(t95):
             ax_b.axvline(t95, ls=":", lw=0.8, alpha=0.6)
@@ -283,6 +304,7 @@ def main():
           os.path.join(args.outdir, "TierA_decay_loglinear.pdf"),
           os.path.join(args.outdir, "TierA_gate_saturation.pdf"),
           file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()
