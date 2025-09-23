@@ -1,0 +1,6 @@
+TierA:
+  tau_fut: 0.28
+  gate_thresh: 0.95
+  min_gate_frac: 0.20
+  min_gate_n: 25
+  amp_floor_sigma: 4.0
