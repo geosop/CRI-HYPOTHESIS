@@ -12,20 +12,21 @@ CRI alignment highlights:
 - Slope panel uses a STRICT per-τ gate-on rule:
     median raw G(τ) ≥ gate_thresh  AND  at least min_gate_n & min_gate_frac trials gate-on.
 - ln A_pre(τ) vs τ is fit by a WEIGHTED linear regression (weights = sqrt(# gate-on at τ)).
-- Fit is (optionally) restricted to the first window after “gate-on” to avoid late noise-floor points.
-- Gate-saturation panel normalizes medians by arousal quantile and marks τ95 (in seconds).
+- Fit can be restricted to the first window after “gate-on” to avoid late noise-floor points.
+- Gate-saturation panel normalizes medians by arousal quantile and marks τ95 (in seconds)
+  with blue dotted guides. Labels start at the x-axis and auto-offset if two τ95 coincide.
 
 Author: ADMIN
 """
-
 from __future__ import annotations
+
 import os
 import sys
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Optional YAML overrides
+# Optional YAML overrides (figures/default_params.yml with a "TierA" block)
 try:
     import yaml
     HAVE_YAML = True
@@ -49,14 +50,14 @@ DEFAULTS = dict(
     B_a=0.40,
     mu_a=0.0,
     sigma_a=1.0,
-    alpha=0.08,               # softened logistic for a broader gate-on window
+    alpha=0.08,               # softened logistic → broader gate-on window
 
     # Gate-on logic for the slope fit (STRICT)
     gate_thresh=0.98,         # threshold for "gate-on"
     min_gate_n=800,           # require at least this many gate-on trials at a τ
     min_gate_frac=0.15,       # and at least this fraction of all trials
 
-    # (Optional) restrict fit to an early window after turn-on (helps avoid ultra-late noise floor)
+    # (Optional) restrict fit to an early window after turn-on (avoid ultra-late noise floor)
     use_fit_window=True,
     fit_window_s=0.40,        # fit over [τ_on, τ_on + fit_window_s]
 
@@ -200,28 +201,27 @@ def main():
 
     # (Optional) restrict to first window after turn-on for stability
     if params.get("use_fit_window", True) and np.any(use):
-        # find earliest τ where *median* gate crosses threshold
-        on_idx = np.argmax(G_med >= params["gate_thresh"]) if np.any(G_med >= params["gate_thresh"]) else None
-        if on_idx is not None:
-            tau_on = tau_grid[on_idx]
+        # earliest τ where *median* gate crosses threshold
+        hit = np.where(G_med >= params["gate_thresh"])[0]
+        if hit.size:
+            tau_on = tau_grid[hit[0]]
             mwin = (tau_grid >= tau_on) & (tau_grid <= min(params["T0"], tau_on + params.get("fit_window_s", 0.4)))
             use = use & mwin
 
     tau_fit = tau_grid[use]
     y_fit   = np.log(A_med_gate[use])
 
-    # Weighted linear fit (weights ~ sqrt(number of gate-on trials))
+    # Weighted linear fit (weights ~ sqrt(number of gate-on trials)); center τ for stability
     slope = np.nan
     slope_se = np.nan
     intercept = np.nan
     if tau_fit.size >= 2:
         w = np.sqrt(np.maximum(n_on[use], 1))
-        # center τ for better numerical stability
         t0 = np.mean(tau_fit)
         X = tau_fit - t0
         coef, cov = np.polyfit(X, y_fit, 1, w=w, cov=True)
         slope, b0 = coef
-        intercept = b0 - slope * t0  # back-transform intercept
+        intercept = b0 - slope * t0
         slope_se = float(np.sqrt(max(cov[0, 0], 0.0)))
     z = 1.96
     slope_ci = (slope - z * slope_se, slope + z * slope_se) if np.isfinite(slope) else (np.nan, np.nan)
@@ -257,11 +257,12 @@ def main():
     q_edges = np.quantile(a_samples, q)
     bins = (-np.inf, q_edges[0], q_edges[2], np.inf)
     labels = ["low a", "mid a", "high a"]
+    colors = {"low a": "tab:blue", "mid a": "tab:orange", "high a": "tab:green"}
 
     # Median raw gate per τ_f within each arousal bin
     G_medians = []
     for b in range(3):
-        in_bin = (a_samples > bins[b]) & (a_samples <= bins[b+1])
+        in_bin = (a_samples > bins[b]) & (a_samples <= bins[b + 1])
         G_medians.append(np.median(G_trials[in_bin, :], axis=0))
 
     # Normalize per quantile (robust) & find τ95 in SECONDS
@@ -275,26 +276,68 @@ def main():
         G_norms.append(Gn)
         taus_95.append(tau_at_level(tau_grid, Gn, params["sat_level"]))
 
-    # Plot gate saturation
+    # Plot gate saturation (draw blue last so it isn’t hidden by green)
     fig_b, ax_b = plt.subplots(figsize=(5.0, 4.0))
-    for Gn, lab in zip(G_norms, labels):
-        ax_b.plot(tau_grid, Gn, label=lab)
-    ax_b.axhline(params["sat_level"], linestyle='--', linewidth=1.0)
+    plot_order = ["mid a", "high a", "low a"]  # ensures low-a (blue) is on top
+    for lab in plot_order:
+        Gn = G_norms[labels.index(lab)]
+        lw = 2.0 if lab == "low a" else 1.6
+        ax_b.plot(tau_grid, Gn, label=lab, color=colors[lab], lw=lw, zorder=2)
 
-    # τ95 markers (in SECONDS)
-    for t95, lab in zip(taus_95, labels):
-        if np.isfinite(t95):
-            ax_b.axvline(t95, ls=":", lw=0.8, alpha=0.6)
-            ax_b.text(t95, params["sat_level"] + 0.02,
-                      f"τ95({lab}) = {t95:.2f} s",
-                      rotation=90, va="bottom", ha="center", fontsize=7)
+    # Horizontal saturation level
+    ax_b.axhline(params["sat_level"], color="0.3", ls="--", lw=1.0, zorder=0)
 
     ax_b.set_title(r"Gate saturation: normalized $G$ across arousal quantiles")
     ax_b.set_xlabel(r"$\tau_f$ (s)")
     ax_b.set_ylabel(r"Gate $G$ (normalized)")
     ax_b.set_ylim(-0.02, 1.02)
+    ax_b.margins(y=0.02)
     ax_b.legend(frameon=False)
     ax_b.grid(True, alpha=0.3)
+
+    # --- τ95 markers: vertical blue guides + bottom-anchored labels with auto-offset
+    vline_kw = dict(color="tab:blue", ls=":", lw=1.15, zorder=1)
+    base_y   = ax_b.get_ylim()[0]
+    offset_pts = 2  # lift labels slightly above x-axis
+    eps = 0.01      # seconds → treat τ95 as coincident if |Δ| < 10 ms
+    t95_map = dict(zip(labels, taus_95))
+
+    def _offset_for(label):
+        # If low/high coincide, push low left and high right; others centered
+        if label == "low a":
+            return -8, "right"
+        if label == "high a":
+            return +8, "left"
+        return 0, "center"
+
+    for lab in labels:
+        t95 = t95_map.get(lab, np.nan)
+        if not np.isfinite(t95):
+            continue
+        # vertical dotted guide (blue)
+        ax_b.axvline(t95, **vline_kw)
+
+        # default placement
+        dx_pt, ha = 0, "center"
+        # if coincident with an earlier label, offset
+        for prev in labels:
+            if prev == lab:
+                break
+            t_prev = t95_map.get(prev, np.nan)
+            if np.isfinite(t_prev) and abs(t95 - t_prev) < eps:
+                dx_pt, ha = _offset_for(lab)
+                break
+
+        # label starts at the x-axis and grows upward
+        ax_b.annotate(
+            rf"$\tau_{{95}}$({lab}) = {t95:.2f} s",
+            xy=(t95, base_y), xycoords="data",
+            xytext=(dx_pt, offset_pts), textcoords="offset points",
+            rotation=90, va="bottom", ha=ha, fontsize=7,
+            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.75),
+            clip_on=True,
+        )
+
     fig_b.tight_layout()
     for ext in ("pdf", "png"):
         fig_b.savefig(os.path.join(args.outdir, f"TierA_gate_saturation.{ext}"),
