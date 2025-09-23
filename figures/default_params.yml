@@ -1,6 +1,39 @@
 TierA:
+  # geometry
+  T0: 1.0
+  N_TAU: 30
+
+  # mechanistic truth
   tau_fut: 0.28
-  gate_thresh: 0.95
-  min_gate_frac: 0.20
-  min_gate_n: 25
-  amp_floor_sigma: 4.0
+
+  # gate parameters
+  p_base: 0.15
+  B_a: 0.40
+  mu_a: 0.0
+  sigma_a: 1.0
+  alpha: 0.08
+
+  # strict gate-on selection
+  gate_thresh: 0.98
+  min_gate_n: 800
+  min_gate_frac: 0.15
+
+  # optional: restrict fit to first window after turn-on
+  use_fit_window: true
+  fit_window_s: 0.40
+
+  # trials & noise
+  N_TRIALS: 20000
+  a_state_mean: 0.0
+  a_state_sd: 0.75
+  A0: 1.0
+  C_true: 0.03
+  x_noise: 0.995
+  sigma0: 0.05
+  seed: 42
+
+  # gate-saturation (panel b)
+  arousal_quantiles: [0.2, 0.5, 0.8]
+  baseline_max_s: 0.05
+  plateau_frac: 0.90
+  sat_level: 0.95
