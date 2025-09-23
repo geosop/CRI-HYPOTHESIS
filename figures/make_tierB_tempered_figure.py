@@ -10,6 +10,7 @@ import os, sys
 from pathlib import Path
 import numpy as np, pandas as pd
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 ROOT = Path(__file__).resolve().parents[1]
 TIERB = ROOT / "tierB_tempered"
@@ -188,9 +189,16 @@ def main():
         if boots:
             lo_k, hi_k = np.percentile(boots, [2.5, 97.5])
             ci_txt = f" (95% CI {lo_k:.3f}, {hi_k:.3f})"
-    axB.text(0.03, 0.95, f"Curvature κ = {k_hat:.3f}{ci_txt}",
-             transform=axB.transAxes, va="top", fontsize=9)
-
+    #axB.text(0.03, 0.95, f"Curvature κ = {k_hat:.3f}{ci_txt}",
+    #         transform=axB.transAxes, va="top", fontsize=9)
+    ax_ins = inset_axes(axB, width="34%", height="22%", loc="upper left", borderpad=0.8)
+    ax_ins.axis("off")
+    ax_ins.text(
+        0.0, 1.0,
+        rf"$\kappa$ = {k_hat:.3f}\n95% CI [{lo_k:.3f}, {hi_k:.3f}]",
+        ha="left", va="top", fontsize=9
+    )
+    
 
     # (C) CIs
     axC = fig.add_subplot(gs[0, 2])
