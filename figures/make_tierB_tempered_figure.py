@@ -95,46 +95,102 @@ def main():
              transform=axA.transAxes, ha="center", va="bottom", fontsize=10)
     axA.set_ylabel("AIC")
 
-    # (B) Early-time curvature (ms)
+   
+    # (B) Curvature on log scale (early, ms)  -------------------------------
     axB = fig.add_subplot(gs[0, 1])
     axB.set_title("Log-survival curvature (early, ms)", fontsize=11)
 
-    # read sample_B if present
-    sample_path = OUT_TIERB / "sample_B.csv"
-    used_label = "KM/ECDF"
-    if sample_path.exists():
-        s = pd.read_csv(sample_path)
-        t_emp_s = (s["t"] if "t" in s.columns else s.iloc[:, 0]).to_numpy(dtype=float)
-        t_emp, log_emp = km_log_survival(t_emp_s)
-        # sanity-check at 200 ms
-        t_probe = 0.200
-        S_emp = np.exp(np.interp(t_probe, t_emp, log_emp, left=0.999999, right=np.exp(log_emp[-1])))
-        S_mod = np.exp(logS_2exp(t_probe, eta, tf, ts))
-        if not (0.2 <= (S_emp / S_mod) <= 5.0):   # very loose guard
-            # regenerate in-memory synthetic points from fitted params
-            t_syn = draw_two_exp(20000, eta, tf, ts)
-            t_emp, log_emp = km_log_survival(t_syn)
-            used_label = "KM/ECDF (synthetic)"
-    else:
-        # if no sample, synthesize in-memory
-        t_syn = draw_two_exp(20000, eta, tf, ts)
-        t_emp, log_emp = km_log_survival(t_syn)
-        used_label = "KM/ECDF (synthetic)"
+    # --- KM/ECDF with Greenwood band (uncensored) --------------------------
+    def km_with_var(x: np.ndarray):
+        x = np.asarray(x, float)
+        x = x[np.isfinite(x)]
+        xs, counts = np.unique(np.sort(x), return_counts=True)
+        n = x.size
+        S = 1.0
+        S_list, t_list, varS_list = [], [], []
+        cum = 0.0
+        for xi, di in zip(xs, counts):
+            if n <= 0:
+                break
+            # KM step
+            S *= (1.0 - di / n)
+            # Greenwood increment
+            if n - di > 0:
+                cum += di / (n * (n - di))
+            varS = (S ** 2) * cum
+            n -= di
+            if S <= 0:
+                break
+            S_list.append(S); t_list.append(xi); varS_list.append(varS)
+        S = np.asarray(S_list); t = np.asarray(t_list); varS = np.asarray(varS_list)
+        logS = np.log(S)
+        se_logS = np.sqrt(varS) / S  # delta method: Var(log S) ≈ Var(S)/S^2
+        return t, logS, se_logS
 
-    # convert to ms and clip early window
-    t_emp_ms = 1e3 * t_emp
+    # Prefer raw synthetic sample → KM; else use precomputed columns
+    sample_path = OUT_TIERB / "sample_B.csv"
+    if sample_path.exists():
+        df_s = pd.read_csv(sample_path)
+        s = (df_s["t"] if "t" in df_s.columns else df_s.iloc[:, 0]).to_numpy()
+        t_emp_s, log_emp, se_log_emp = km_with_var(s)
+    else:
+        t_emp_s = curv["t"].to_numpy()
+        log_emp = curv["log_surv_emp"].to_numpy()
+        se_log_emp = None  # no band available
+
+    # Convert to ms and keep an early window that shows curvature clearly
+    t_emp_ms = 1e3 * t_emp_s
     t_mod_ms = 1e3 * curv["t"].to_numpy()
-    tau_slow_ms = max(60.0, min(200.0, ts * 1e3 * 5.0))
+    tau_slow_ms = max(60.0, min(200.0, float(f2["tau_slow"]) * 1e3 * 5.0))
     m_emp = t_emp_ms <= tau_slow_ms
     m_mod = t_mod_ms <= tau_slow_ms
 
-    axB.plot(t_emp_ms[m_emp], log_emp[m_emp], marker="o", lw=0, ms=3, label=used_label)
+    # Plot KM curve (step-ish via many points) and 95% CI band
+    if se_log_emp is not None:
+        lo = log_emp - 1.96 * se_log_emp
+        hi = log_emp + 1.96 * se_log_emp
+        axB.fill_between(t_emp_ms[m_emp], lo[m_emp], hi[m_emp], alpha=0.15, label="KM 95% CI")
+    axB.plot(t_emp_ms[m_emp], log_emp[m_emp], marker="o", lw=0, ms=2.5, label="KM/ECDF")
+
+    # Overlay model lines on same (time, ms) window
     axB.plot(t_mod_ms[m_mod], curv["log_surv_1exp"].to_numpy()[m_mod], lw=2, label="1-exp fit")
     axB.plot(t_mod_ms[m_mod], curv["log_surv_2exp"].to_numpy()[m_mod], lw=2, label="2-exp fit")
+
     axB.set_xlabel("time (ms)")
     axB.set_ylabel("log survival")
     axB.set_xlim(0, tau_slow_ms)
-    axB.legend(fontsize=9, frameon=False)
+    axB.legend(fontsize=9, frameon=False, loc="lower left")
+
+    # --- Curvature index κ with a light bootstrap --------------------------
+    def _slope(x, y):
+        if x.size < 2:
+            return np.nan
+        return np.polyfit(x, y, 1)[0]
+
+    # define early/late windows (ms)
+    W1 = (t_emp_ms >= 10) & (t_emp_ms <= 50)
+    W2 = (t_emp_ms >= 120) & (t_emp_ms <= 200)
+    k_hat = _slope(t_emp_ms[W1], log_emp[W1]) - _slope(t_emp_ms[W2], log_emp[W2])
+
+    ci_txt = ""
+    if sample_path.exists():
+        rng = np.random.default_rng(0)
+        boots = []
+        for _ in range(300):  # light bootstrap for CI
+            xb = rng.choice(s, size=s.size, replace=True)
+            tb, lb, _seb = km_with_var(xb)
+            tb_ms = 1e3 * tb
+            W1b = (tb_ms >= 10) & (tb_ms <= 50)
+            W2b = (tb_ms >= 120) & (tb_ms <= 200)
+            kb = _slope(tb_ms[W1b], lb[W1b]) - _slope(tb_ms[W2b], lb[W2b])
+            if np.isfinite(kb):
+                boots.append(kb)
+        if boots:
+            lo_k, hi_k = np.percentile(boots, [2.5, 97.5])
+            ci_txt = f" (95% CI {lo_k:.3f}, {hi_k:.3f})"
+    axB.text(0.03, 0.95, f"Curvature κ = {k_hat:.3f}{ci_txt}",
+             transform=axB.transAxes, va="top", fontsize=9)
+
 
     # (C) CIs
     axC = fig.add_subplot(gs[0, 2])
