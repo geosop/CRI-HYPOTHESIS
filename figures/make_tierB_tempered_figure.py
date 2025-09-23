@@ -91,9 +91,14 @@ def main():
     for b in bars:
         axA.text(b.get_x() + b.get_width()/2, b.get_height(), f"{b.get_height():.1f}",
                  ha="center", va="bottom", fontsize=9)
-    axA.text(0.5, 0.02, f"ΔAIC={float(aic['Delta_AIC']):.1f}   "
-                        f"LRT={float(aic['LRT']):.2f}   p={float(aic['p_value']):.3g}",
-             transform=axA.transAxes, ha="center", va="bottom", fontsize=10)
+    # AIC/LRT/p summary at top-left, smaller font
+    axA.text(
+        0.02, 0.98,
+        f"ΔAIC={dAIC:.1f}   LRT={lrt:.2f}   p={p:.3g}",
+        transform=axA.transAxes, ha="left", va="top",
+        fontsize=9,
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.6, boxstyle="round,pad=0.2"),
+    )
     axA.set_ylabel("AIC")
 
    
@@ -215,12 +220,17 @@ def main():
                  fmt="o", capsize=4)
     axC.set_xticks(x, labels); axC.set_xlim(-0.5, len(labels)-0.5); axC.grid(axis="y", alpha=0.3)
     tau1 = float(f1["value"])
-    axC.text(0.02, 0.02,
-             f"1-exp τ̂ = {tau1*1e3:.1f} ms\n"
-             f"2-exp η̂ = {eta:.2f}\n"
-             f"τ̂_fast = {tf*1e3:.1f} ms\n"
-             f"τ̂_slow = {ts*1e3:.1f} ms",
-             transform=axC.transAxes, va="bottom", fontsize=9)
+    # Summary box to top-left inside the axis
+    axC.text(
+        0.02, 0.98,
+        (f"1-exp $\\hat{{\\tau}}$ = {tau1*1e3:.1f} ms\n"
+         f"2-exp $\\hat{{\\eta}}$ = {eta_hat:.2f}\n"
+         f"$\\hat{{\\tau}}_\\mathrm{{fast}}$ = {tf_hat*1e3:.1f} ms\n"
+         f"$\\hat{{\\tau}}_\\mathrm{{slow}}$ = {ts_hat*1e3:.1f} ms"),
+        transform=axC.transAxes, ha="left", va="top",
+        fontsize=9,
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.6, boxstyle="round,pad=0.2"),
+    )
 
     fig.suptitle("Tier-B tempered mixtures: 1-exp vs 2-exp", fontsize=12, y=1.02)
     fig.tight_layout()
