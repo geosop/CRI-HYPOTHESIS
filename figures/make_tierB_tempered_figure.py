@@ -4,13 +4,16 @@
 figures/make_tierB_tempered_figure.py
 (A) AIC/LRT; (B) early-time log-survival curvature (ms); (C) 95% CIs
 """
-
 from __future__ import annotations
 import os, sys
 from pathlib import Path
 import numpy as np, pandas as pd
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes  # ok to keep even if unused
+
+# CI-safe font (prevents Arial warnings on GitHub runners)
+mpl.rcParams["font.family"] = "DejaVu Sans"
 
 ROOT = Path(__file__).resolve().parents[1]
 TIERB = ROOT / "tierB_tempered"
@@ -28,8 +31,7 @@ def km_log_survival(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         return x, np.full_like(x, np.nan, dtype=float)
     xs, counts = np.unique(np.sort(x), return_counts=True)
     n = x.size
-    S, tvals = 1.0, []
-    logs = []
+    S, tvals, logs = 1.0, [], []
     for xi, di in zip(xs, counts):
         if n <= 0:
             break
@@ -76,9 +78,18 @@ def main():
     ci = pd.read_csv(OUT_TIERB / "ci_2exp.csv", index_col=0)
     f1 = pd.read_csv(OUT_TIERB / "fit_1exp.csv")
     f2 = pd.read_csv(OUT_TIERB / "fit_2exp.csv")
-    eta = float(f2["eta"])
-    tf  = float(f2["tau_fast"])
-    ts  = float(f2["tau_slow"])
+
+    # Pull scalars safely (avoids FutureWarning)
+    aic1 = float(aic["AIC_1exp"].iloc[0])
+    aic2 = float(aic["AIC_2exp"].iloc[0])
+    dAIC = float(aic["Delta_AIC"].iloc[0]) if "Delta_AIC" in aic.columns else (aic1 - aic2)
+    lrt  = float(aic["LRT"].iloc[0])
+    p    = float(aic["p_value"].iloc[0])
+
+    eta = float(f2["eta"].iloc[0])
+    tf  = float(f2["tau_fast"].iloc[0])
+    ts  = float(f2["tau_slow"].iloc[0])
+    tau1 = float(f1["value"].iloc[0])
 
     fig = plt.figure(figsize=(11.0, 3.6))
     gs = fig.add_gridspec(nrows=1, ncols=3, wspace=0.28)
@@ -86,7 +97,6 @@ def main():
     # (A) AIC / LRT
     axA = fig.add_subplot(gs[0, 0])
     axA.set_title("Model comparison (Tier-B)", fontsize=11)
-    aic1, aic2 = float(aic["AIC_1exp"]), float(aic["AIC_2exp"])
     bars = axA.bar([0, 1], [aic1, aic2], tick_label=["1-exp", "2-exp"])
     for b in bars:
         axA.text(b.get_x() + b.get_width()/2, b.get_height(), f"{b.get_height():.1f}",
@@ -101,12 +111,11 @@ def main():
     )
     axA.set_ylabel("AIC")
 
-   
-    # (B) Curvature on log scale (early, ms)  -------------------------------
+    # (B) Curvature on log scale (early, ms)
     axB = fig.add_subplot(gs[0, 1])
     axB.set_title("Log-survival curvature (early, ms)", fontsize=11)
 
-    # --- KM/ECDF with Greenwood band (uncensored) --------------------------
+    # KM/ECDF with Greenwood band (uncensored)
     def km_with_var(x: np.ndarray):
         x = np.asarray(x, float)
         x = x[np.isfinite(x)]
@@ -118,11 +127,9 @@ def main():
         for xi, di in zip(xs, counts):
             if n <= 0:
                 break
-            # KM step
             S *= (1.0 - di / n)
-            # Greenwood increment
             if n - di > 0:
-                cum += di / (n * (n - di))
+                cum += di / (n * (n - di))  # Greenwood increment
             varS = (S ** 2) * cum
             n -= di
             if S <= 0:
@@ -130,7 +137,7 @@ def main():
             S_list.append(S); t_list.append(xi); varS_list.append(varS)
         S = np.asarray(S_list); t = np.asarray(t_list); varS = np.asarray(varS_list)
         logS = np.log(S)
-        se_logS = np.sqrt(varS) / S  # delta method: Var(log S) ≈ Var(S)/S^2
+        se_logS = np.sqrt(varS) / S  # delta method
         return t, logS, se_logS
 
     # Prefer raw synthetic sample → KM; else use precomputed columns
@@ -147,18 +154,18 @@ def main():
     # Convert to ms and keep an early window that shows curvature clearly
     t_emp_ms = 1e3 * t_emp_s
     t_mod_ms = 1e3 * curv["t"].to_numpy()
-    tau_slow_ms = max(60.0, min(200.0, float(f2["tau_slow"]) * 1e3 * 5.0))
+    tau_slow_ms = max(60.0, min(200.0, ts * 1e3 * 5.0))
     m_emp = t_emp_ms <= tau_slow_ms
     m_mod = t_mod_ms <= tau_slow_ms
 
-    # Plot KM curve (step-ish via many points) and 95% CI band
+    # Plot KM curve and 95% CI band
     if se_log_emp is not None:
         lo = log_emp - 1.96 * se_log_emp
         hi = log_emp + 1.96 * se_log_emp
         axB.fill_between(t_emp_ms[m_emp], lo[m_emp], hi[m_emp], alpha=0.15, label="KM 95% CI")
     axB.plot(t_emp_ms[m_emp], log_emp[m_emp], marker="o", lw=0, ms=2.5, label="KM/ECDF")
 
-    # Overlay model lines on same (time, ms) window
+    # Overlay model lines
     axB.plot(t_mod_ms[m_mod], curv["log_surv_1exp"].to_numpy()[m_mod], lw=2, label="1-exp fit")
     axB.plot(t_mod_ms[m_mod], curv["log_surv_2exp"].to_numpy()[m_mod], lw=2, label="2-exp fit")
 
@@ -167,18 +174,17 @@ def main():
     axB.set_xlim(0, tau_slow_ms)
     axB.legend(fontsize=9, frameon=False, loc="lower left")
 
-    # --- Curvature index κ with a light bootstrap --------------------------
+    # Curvature index κ with a light bootstrap
     def _slope(x, y):
         if x.size < 2:
             return np.nan
         return np.polyfit(x, y, 1)[0]
 
-    # define early/late windows (ms)
     W1 = (t_emp_ms >= 10) & (t_emp_ms <= 50)
     W2 = (t_emp_ms >= 120) & (t_emp_ms <= 200)
     k_hat = _slope(t_emp_ms[W1], log_emp[W1]) - _slope(t_emp_ms[W2], log_emp[W2])
 
-    ci_txt = ""
+    ci_available = False
     if sample_path.exists():
         rng = np.random.default_rng(0)
         boots = []
@@ -193,19 +199,19 @@ def main():
                 boots.append(kb)
         if boots:
             lo_k, hi_k = np.percentile(boots, [2.5, 97.5])
-            ci_txt = f" (95% CI {lo_k:.3f}, {hi_k:.3f})"
-    #axB.text(0.03, 0.95, f"Curvature κ = {k_hat:.3f}{ci_txt}",
-    #         transform=axB.transAxes, va="top", fontsize=9)    
+            ci_available = True
 
-    k_txt = f"$\\kappa$ = {k_hat:.3f}\n95% CI [{lo_k:.3f}, {hi_k:.3f}]"
+    # κ inset (multiline only if CI available)
+    k_lines = [r"$\kappa$ = {:.3f}".format(k_hat)]
+    if ci_available:
+        k_lines.append("95% CI [{:.3f}, {:.3f}]".format(lo_k, hi_k))
     axB.text(
-        0.02, 0.98, k_txt,
+        0.02, 0.98, "\n".join(k_lines),
         transform=axB.transAxes,
         ha="left", va="top",
         fontsize=9,
         bbox=dict(facecolor="white", edgecolor="none", alpha=0.6, boxstyle="round,pad=0.2"),
     )
-
 
     # (C) CIs
     axC = fig.add_subplot(gs[0, 2])
@@ -215,18 +221,22 @@ def main():
     lo = [ci.loc["lo", "eta"], ci.loc["lo", "tau_fast"]*1e3, ci.loc["lo", "tau_slow"]*1e3]
     hi = [ci.loc["hi", "eta"], ci.loc["hi", "tau_fast"]*1e3, ci.loc["hi", "tau_slow"]*1e3]
     x = np.arange(len(labels))
-    axC.errorbar(x, centers,
-                 yerr=[np.array(centers)-np.array(lo), np.array(hi)-np.array(centers)],
-                 fmt="o", capsize=4)
-    axC.set_xticks(x, labels); axC.set_xlim(-0.5, len(labels)-0.5); axC.grid(axis="y", alpha=0.3)
-    tau1 = float(f1["value"])
-    # Summary box to top-left inside the axis
+    axC.errorbar(
+        x, centers,
+        yerr=[np.array(centers)-np.array(lo), np.array(hi)-np.array(centers)],
+        fmt="o", capsize=4
+    )
+    axC.set_xticks(x, labels)
+    axC.set_xlim(-0.5, len(labels)-0.5)
+    axC.grid(axis="y", alpha=0.3)
+
+    # Summary box at top-left
     axC.text(
         0.02, 0.98,
         (f"1-exp $\\hat{{\\tau}}$ = {tau1*1e3:.1f} ms\n"
-         f"2-exp $\\hat{{\\eta}}$ = {eta_hat:.2f}\n"
-         f"$\\hat{{\\tau}}_\\mathrm{{fast}}$ = {tf_hat*1e3:.1f} ms\n"
-         f"$\\hat{{\\tau}}_\\mathrm{{slow}}$ = {ts_hat*1e3:.1f} ms"),
+         f"2-exp $\\hat{{\\eta}}$ = {eta:.2f}\n"
+         f"$\\hat{{\\tau}}_\\mathrm{{fast}}$ = {tf*1e3:.1f} ms\n"
+         f"$\\hat{{\\tau}}_\\mathrm{{slow}}$ = {ts*1e3:.1f} ms"),
         transform=axC.transAxes, ha="left", va="top",
         fontsize=9,
         bbox=dict(facecolor="white", edgecolor="none", alpha=0.6, boxstyle="round,pad=0.2"),
@@ -240,4 +250,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
