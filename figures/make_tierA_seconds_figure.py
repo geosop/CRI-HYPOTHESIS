@@ -276,15 +276,20 @@ def main():
         G_norms.append(Gn)
         taus_95.append(tau_at_level(tau_grid, Gn, params["sat_level"]))
 
-    # Plot gate saturation (draw blue last so it isn’t hidden by green)
-    fig_b, ax_b = plt.subplots(figsize=(5.0, 4.0))
-    plot_order = ["mid a", "high a", "low a"]  # ensures low-a (blue) is on top
+    # Plot gate saturation (make green twice as thick as blue; draw green last)
+    fig_b, ax_b = plt.subplots(figsize=(5.0, 4.0)) 
+    
+    colors = {"low a": "tab:blue", "mid a": "tab:orange", "high a": "tab:green"}
+    lw_low = 1.6
+    lw_map = {"low a": lw_low, "mid a": 1.2*lw_low, "high a": 2.0*lw_low}
+  
+    # draw order -> green last so it isn't covered
+    plot_order = ["mid a", "low a", "high a"]
     for lab in plot_order:
         Gn = G_norms[labels.index(lab)]
-        lw = 2.0 if lab == "low a" else 1.6
-        ax_b.plot(tau_grid, Gn, label=lab, color=colors[lab], lw=lw, zorder=2)
-
-    # Horizontal saturation level
+        ax_b.plot(tau_grid, Gn, label=lab, color=colors[lab], lw=lw_map[lab], zorder=2)
+  
+    # Horizontal saturation line
     ax_b.axhline(params["sat_level"], color="0.3", ls="--", lw=1.0, zorder=0)
 
     ax_b.set_title(r"Gate saturation: normalized $G$ across arousal quantiles")
@@ -292,9 +297,13 @@ def main():
     ax_b.set_ylabel(r"Gate $G$ (normalized)")
     ax_b.set_ylim(-0.02, 1.02)
     ax_b.margins(y=0.02)
-    ax_b.legend(frameon=False)
     ax_b.grid(True, alpha=0.3)
 
+    # Keep legend order as low, mid, high
+    handles, leg_labels = ax_b.get_legend_handles_labels()
+    order = [leg_labels.index("low a"), leg_labels.index("mid a"), leg_labels.index("high a")]
+    ax_b.legend([handles[i] for i in order], [leg_labels[i] for i in order]], frameon=False)
+  
     # --- τ95 markers: vertical blue guides + bottom-anchored labels with auto-offset
     vline_kw = dict(color="tab:blue", ls=":", lw=1.15, zorder=1)
     base_y   = ax_b.get_ylim()[0]
