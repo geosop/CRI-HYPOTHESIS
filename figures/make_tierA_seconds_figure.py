@@ -284,7 +284,7 @@ def main():
     lw_map = {"low a": lw_low, "mid a": 1.2*lw_low, "high a": 2.0*lw_low}
   
     # draw order -> green last so it isn't covered
-    plot_order = ["mid a", "low a", "high a"]
+    plot_order = ["mid a", "high a", "low a"]
     for lab in plot_order:
         Gn = G_norms[labels.index(lab)]
         ax_b.plot(tau_grid, Gn, label=lab, color=colors[lab], lw=lw_map[lab], zorder=2)
