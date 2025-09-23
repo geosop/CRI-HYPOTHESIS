@@ -262,6 +262,12 @@ def main():
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
     print(f"Tier-B tempered mixture outputs → {OUT}")
 
+    # --- also generate a matching raw sample for KM/ECDF plotting ---
+    try:
+        from tierB_tempered.make_sample_B import main as _make_sample_B
+        _make_sample_B()
+    except Exception as e:
+        print(f"[WARN] make_sample_B skipped: {e}")
 
 if __name__ == "__main__":
     main()
