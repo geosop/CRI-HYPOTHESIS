@@ -18,8 +18,9 @@ decay:
   n_boot: 2000
   ci_percent: 95
 
-  # Detection threshold ε (shown as dashed red line at ln ε and ε in inset)
-  epsilon_detection: 0.01
+  # Detection threshold (parametric, pre-specified)
+  detection_mode: param
+  A_min: 0.367879441   # e^{-1}; dashed red line at ln A_min = -1
 
   # Figure export
   figure_dpi: 1200
