@@ -160,7 +160,7 @@ def main():
     # Detection bound
     eps = float(p.get('epsilon_detection', 0.01))
     ax.axhline(np.log(eps), linestyle='--', color='#D62728', linewidth=1.0,
-               label=r"Detection bound: $\ln \epsilon$")
+               label=r"Detection bound: $\lnA_pre$")
 
     # Axes/limits
     ax.set_xlabel(r"$\tau_f$ (ms)")
