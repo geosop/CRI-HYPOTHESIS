@@ -248,7 +248,7 @@ def main():
 
     # Slope/τ annotation
     ymin, ymax = ax.get_ylim()
-    y_ann = ymin + 0.10 * (ymax - ymin)  # 10% above bottom; bump to 0.12–0.15 if needed
+    y_ann = ymin + 0.15 * (ymax - ymin)  # 15% above bottom; bump to 0.12–0.15 if needed
     x_ann_axes = 0.60
     ann_txt = (r"$\mathrm{slope} = -1/\tau_{\mathrm{fut}}$"
                + "\n" + rf"$\hat{{\tau}}_{{\mathrm{{fut}}}}={tau_ms:.1f}\,\mathrm{{ms}}$")
