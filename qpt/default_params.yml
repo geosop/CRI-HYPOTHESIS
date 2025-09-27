@@ -1,16 +1,34 @@
 qpt:
-  seed:        52
-  # Simulation parameters
-  gamma_f:      1.0
-  gamma_b_vals: [0.2, 0.8]
-  t_max:        10.0
-  n_t:          200
-  lambda_env_min: 0.0      # was kappa_min
-  lambda_env_max: 1.0      # was kappa_max
-  n_lambda_env:   11       # was n_kappa
-  noise_R:      0.05
-  seed:         0
+  # Reproducibility
+  seed: 52
 
-  # Fitting parameters
-  ci_percent:   95
-  n_bootstrap:  1000
+  # --- Simulation parameters (Left panel uses ms-scale CRI window) ---
+  gamma_f:       1.0        # kept for backward-compat with existing sim code
+  gamma_fwd:     1.0        # explicit name used by plotting/notation
+  gamma_b_vals: [0.2, 0.8]
+
+  # Time grid for P(t) simulation (seconds). Use ms-scale to match caption/CRI.
+  t_max:         0.2        # 0.2 s = 200 ms (was 10.0)
+  n_t:           200
+
+  # Environmental coupling scan (Right panel)
+  lambda_env_min: 0.0       # s^-1
+  lambda_env_max: 1.0       # s^-1
+  n_lambda_env:   11
+
+  # Noise / bootstrap used upstream when generating qpt_sim_data.npz
+  noise_R:       0.05
+  n_bootstrap:   1000
+
+  # --- Units/normalization controls for Figure (c) ---
+  # Baseline rate (s^-1) mapping weights -> physical rates; used in caption and in R = λ_env / κ0
+  kappa0:        8.0        # ≈ 1/0.125 s; aligns with ~125 ms CRI timescales
+
+  # Fixed half-width for the 95% CI surrogate band around the theory curve R=λ_env/κ0
+  fixed_ci_halfwidth: 0.10
+
+  # Left-panel x-limit in milliseconds (plotting only; does not change simulation)
+  left_panel_tmax_ms: 200
+
+  # Figure export
+  figure_dpi:    1200
