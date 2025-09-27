@@ -258,16 +258,15 @@ def main():
     )
 
     # ---------------- Inset (adjustable) ------------------------------------
-    # NOTE: This is the control you asked for:
     #   - Position: args.inset_x / args.inset_y (axes coords, 0..1)
     #   - Size:     args.inset_w / args.inset_h (fractions of axes; turned into "%")
-    inset_w_pct = f"{args.inset_w*100:.0f}%"
+    inset_w_pct = f"{args.inset_w*110:.0f}%"
     inset_h_pct = f"{args.inset_h*100:.0f}%"
 
     ax_ins = inset_axes(
         ax, width=inset_w_pct, height=inset_h_pct,
         loc='lower left',
-        bbox_to_anchor=(args.inset_x, args.inset_y, 1, 1),
+        bbox_to_anchor=(args.inset_x, args.inset_y, 1, 2),
         bbox_transform=ax.transAxes,
         borderpad=0.2
     )
