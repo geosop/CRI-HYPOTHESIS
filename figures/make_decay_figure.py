@@ -8,14 +8,21 @@ Changes vs prior:
 - Overlay CRI reference line with slope = -1 / τ̂_fut on the log plot.
 - Keep wide 95% CI band, orange samples, red detection bound.
 - Legend moved to upper-right with a light gray background.
-- Inset moved to lower-left; no orange line inside inset.
+- Inset moved to lower-left by default and reduced to ~1/3 of prior area.
+- Inset position & size are adjustable via CLI flags or env vars.
 - X-axis fixed to 0–20 ms.
 - Avoid tight_layout() warning (save with bbox_inches='tight').
-- Detection bound: renamed to A_min (log plot shows ln A_min). Backward-compatible
+- Detection bound: A_min (log plot shows ln A_min). Backward-compatible
   with legacy epsilon_detection; optional 'auto' mode from bootstrap band.
+
+Inset controls (axes coordinates / size fractions):
+    --inset-x 0.08  --inset-y 0.10  --inset-w 0.19  --inset-h 0.17
+or environment variables:
+    CRI_INSET_X=0.08 CRI_INSET_Y=0.10 CRI_INSET_W=0.19 CRI_INSET_H=0.17
 """
 import os
 import yaml
+import argparse
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
@@ -57,7 +64,6 @@ def _load_tau_fut_seconds(decay_output_dir):
     if os.path.exists(f1):
         try:
             df = pd.read_csv(f1)
-            # columns typically: tau_hat_ms, ci_lo_ms, ci_hi_ms
             if 'tau_hat_ms' in df.columns:
                 tau_s = float(df['tau_hat_ms'].iloc[0]) / 1000.0
             if 'ci_lo_ms' in df.columns:
@@ -73,7 +79,6 @@ def _load_tau_fut_seconds(decay_output_dir):
         if os.path.exists(f2):
             try:
                 band_meta = pd.read_csv(f2)
-                # If there's a metadata section, find a 'tau' row
                 if 'name' in band_meta.columns and 'center_s' in band_meta.columns:
                     row = band_meta.loc[band_meta['name'].str.contains('tau', case=False)]
                     if not row.empty:
@@ -115,11 +120,10 @@ def resolve_detection_threshold(p, band):
 
     Keys in YAML (under 'decay'):
       detection_mode: 'param' | 'auto'
-      A_min: 0.01             # linear units (amplitude)
+      A_min: 0.01
       epsilon_detection: 0.01  # legacy; used if A_min not present
     """
     mode = str(p.get('detection_mode', 'param')).lower()
-    # Backward compatibility: accept either A_min or legacy epsilon_detection
     A_min = p.get('A_min', p.get('epsilon_detection', 0.01))
     try:
         A_min = float(A_min)
@@ -127,7 +131,6 @@ def resolve_detection_threshold(p, band):
         A_min = 0.01
 
     if mode == 'auto':
-        # choose the lower 95% band at the largest tau_f as a pragmatic "floor"
         idx = int(np.argmax(band['delta_ms'].values))
         lnA_min = float(band['lnA_low'].iloc[idx])
         A_min = float(np.exp(lnA_min))
@@ -136,7 +139,23 @@ def resolve_detection_threshold(p, band):
 
     return A_min, lnA_min
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate CRI decay figure with adjustable inset.")
+    # Inset position (axes coords)
+    parser.add_argument("--inset-x", type=float, default=float(os.getenv("CRI_INSET_X", 0.08)),
+                        help="Inset lower-left x in axes coords [0..1].")
+    parser.add_argument("--inset-y", type=float, default=float(os.getenv("CRI_INSET_Y", 0.10)),
+                        help="Inset lower-left y in axes coords [0..1].")
+    # Inset size (fractions of axes; converted to percentages for inset_axes)
+    parser.add_argument("--inset-w", type=float, default=float(os.getenv("CRI_INSET_W", 0.19)),
+                        help="Inset width as fraction of main axes (e.g., 0.19 ≈ 19%).")
+    parser.add_argument("--inset-h", type=float, default=float(os.getenv("CRI_INSET_H", 0.17)),
+                        help="Inset height as fraction of main axes (e.g., 0.17 ≈ 17%).")
+    return parser.parse_args()
+
 def main():
+    args = parse_args()
+
     here         = os.path.dirname(__file__)
     repo_root    = os.path.abspath(os.path.join(here, os.pardir))
     decay_folder = os.path.join(repo_root, 'decay')
@@ -205,7 +224,7 @@ def main():
     ax.set_ylabel(r"$\ln A_{\mathrm{pre}}(\tau_f)$")
     ax.set_xlim(-0.5, 20.5)
 
-    # Legend: move to upper-right with light gray background
+    # Legend: upper-right with light gray background
     leg = ax.legend(loc='upper right', bbox_to_anchor=(0.98, 0.98),
                     frameon=True, fancybox=True)
     frame = leg.get_frame()
@@ -215,23 +234,20 @@ def main():
     frame.set_linewidth(0.6)
 
     # --- CRI reference line with slope = -1/τ̂_fut --------------------------
-    # Anchor the line to pass through the earliest central point to match the
-    # absolute level of the fitted curve, then apply the theoretical slope.
     i0 = int(np.argmin(band['delta_ms'].values))
     x0_ms = float(band['delta_ms'].values[i0])
     y0    = float(band['lnA_central'].values[i0])
 
     x_line_ms = np.linspace(0.0, 20.0, 200)
-    # x in seconds for the slope; shift to pass through (x0_ms, y0)
-    x_line_s = x_line_ms / 1000.0
-    x0_s     = x0_ms / 1000.0
-    y_cri    = y0 + slope_per_s * (x_line_s - x0_s)  # slope = -1/τ̂_fut
+    x_line_s  = x_line_ms / 1000.0
+    x0_s      = x0_ms / 1000.0
+    y_cri     = y0 + slope_per_s * (x_line_s - x0_s)
 
     ax.plot(x_line_ms, y_cri, ls='--', lw=1.1, color='0.25',
             label=rf"CRI slope −1/τ$_{{\mathrm{{fut}}}}$ ({tau_ms:.1f} ms)")
 
-    # Slope/τ annotation: just below the band’s minimum
-    y_ann = float(band['lnA_low'].min()) - 0.10  # margin in log-units
+    # Slope/τ annotation
+    y_ann = float(band['lnA_low'].min()) - 0.10
     x_ann_axes = 0.60
     ann_txt = (r"$\mathrm{slope} = -1/\tau_{\mathrm{fut}}$"
                + "\n" + rf"$\hat{{\tau}}_{{\mathrm{{fut}}}}={tau_ms:.1f}\,\mathrm{{ms}}$")
@@ -241,11 +257,17 @@ def main():
         bbox=dict(boxstyle="round,pad=0.25", facecolor="white", alpha=0.80, edgecolor="none")
     )
 
-    # Inset (raw A_pre), moved to lower-left; black line + orange dots only
+    # ---------------- Inset (adjustable) ------------------------------------
+    # NOTE: This is the control you asked for:
+    #   - Position: args.inset_x / args.inset_y (axes coords, 0..1)
+    #   - Size:     args.inset_w / args.inset_h (fractions of axes; turned into "%")
+    inset_w_pct = f"{args.inset_w*100:.0f}%"
+    inset_h_pct = f"{args.inset_h*100:.0f}%"
+
     ax_ins = inset_axes(
-        ax, width='58%', height='52%',
+        ax, width=inset_w_pct, height=inset_h_pct,
         loc='lower left',
-        bbox_to_anchor=(0.06, 0.10, 1, 1),  # (x0, y0, w, h) in axes coords; w,h ignored for % sizes
+        bbox_to_anchor=(args.inset_x, args.inset_y, 1, 1),
         bbox_transform=ax.transAxes,
         borderpad=0.2
     )
