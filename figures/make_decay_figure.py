@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-figures/make_decay_figure.py  
+figures/make_decay_figure.py
 
 Changes vs prior:
 - Use DejaVu Sans (silences Arial warnings on Linux runners).
@@ -10,6 +10,8 @@ Changes vs prior:
 - Legend moved up; inset moved higher; no orange line inside inset.
 - X-axis fixed to 0–20 ms.
 - Avoid tight_layout() warning (save with bbox_inches='tight').
+- Detection bound: renamed to A_min (log plot shows ln A_min). Backward-compatible
+  with legacy epsilon_detection; optional 'auto' mode from bootstrap band.
 """
 import os
 import yaml
@@ -38,7 +40,9 @@ mpl.rcParams.update({
 
 def load_params(path):
     with open(path, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)['decay']
+        y = yaml.safe_load(f)
+    # Expect 'decay' root; tolerate flat YAML
+    return y['decay'] if isinstance(y, dict) and 'decay' in y else y
 
 def _load_tau_fut_seconds(decay_output_dir):
     """
@@ -100,6 +104,37 @@ def _load_tau_fut_seconds(decay_output_dir):
 
     return tau_s, lo_s, hi_s
 
+def resolve_detection_threshold(p, band):
+    """
+    Returns (A_min, lnA_min) for the detection bound.
+
+    Modes:
+      - 'param' (default): use p['A_min'] (or legacy p['epsilon_detection']) as a constant floor.
+      - 'auto': pick lnA_min from the bootstrap lower band at the largest delay (conservative).
+
+    Keys in YAML (under 'decay'):
+      detection_mode: 'param' | 'auto'
+      A_min: 0.01             # linear units (amplitude)
+      epsilon_detection: 0.01  # legacy; used if A_min not present
+    """
+    mode = str(p.get('detection_mode', 'param')).lower()
+    # Backward compatibility: accept either A_min or legacy epsilon_detection
+    A_min = p.get('A_min', p.get('epsilon_detection', 0.01))
+    try:
+        A_min = float(A_min)
+    except Exception:
+        A_min = 0.01
+
+    if mode == 'auto':
+        # choose the lower 95% band at the largest tau_f as a pragmatic "floor"
+        idx = int(np.argmax(band['delta_ms'].values))
+        lnA_min = float(band['lnA_low'].iloc[idx])
+        A_min = float(np.exp(lnA_min))
+    else:
+        lnA_min = float(np.log(A_min))
+
+    return A_min, lnA_min
+
 def main():
     here         = os.path.dirname(__file__)
     repo_root    = os.path.abspath(os.path.join(here, os.pardir))
@@ -125,6 +160,9 @@ def main():
     tau_s, lo_s, hi_s = _load_tau_fut_seconds(out_dir_data)  # raises if not found
     tau_ms = tau_s * 1e3
     slope_per_s = -1.0 / tau_s
+
+    # Resolve detection threshold (param or auto)
+    A_min, lnA_min = resolve_detection_threshold(p, band)
 
     # Figure
     fig, ax = plt.subplots(figsize=(88/25.4, 58/25.4))
@@ -157,10 +195,9 @@ def main():
             s=16, color='#FF8C1A', zorder=3, label="Sampled delays"
         )
 
-    # Detection bound
-    eps = float(p.get('epsilon_detection', 0.01))
-    ax.axhline(np.log(eps), linestyle='--', color='#D62728', linewidth=1.0,
-               label=r"Detection bound: $\lnA_pre$")
+    # Detection bound (log plot shows ln A_min)
+    ax.axhline(lnA_min, linestyle='--', color='#D62728', linewidth=1.0,
+               label=r"Detection bound: $\ln A_{\min}$")
 
     # Axes/limits
     ax.set_xlabel(r"$\tau_f$ (ms)")
@@ -206,7 +243,7 @@ def main():
     )
     ax_ins.plot(band['delta_ms'], A_central, color='black', linewidth=0.9, zorder=2)
     ax_ins.scatter(pts['delta_ms'], A_pts, s=12, color='#FF8C1A', zorder=3)
-    ax_ins.axhline(eps, linestyle='--', color='#D62728', linewidth=0.7)
+    ax_ins.axhline(A_min, linestyle='--', color='#D62728', linewidth=0.7)
 
     ax_ins.set_title(r"Raw $A_{\mathrm{pre}}(\tau_f)$", fontsize=6.5, pad=1.5)
     ax_ins.set_xlabel(r"$\tau_f$ (ms)", fontsize=6.5)
