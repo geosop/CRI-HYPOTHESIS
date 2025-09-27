@@ -7,7 +7,8 @@ Changes vs prior:
 - Read τ̂_fut robustly from decay/output/* and annotate it.
 - Overlay CRI reference line with slope = -1 / τ̂_fut on the log plot.
 - Keep wide 95% CI band, orange samples, red detection bound.
-- Legend moved up; inset moved higher; no orange line inside inset.
+- Legend moved to upper-right with a light gray background.
+- Inset moved to lower-left; no orange line inside inset.
 - X-axis fixed to 0–20 ms.
 - Avoid tight_layout() warning (save with bbox_inches='tight').
 - Detection bound: renamed to A_min (log plot shows ln A_min). Backward-compatible
@@ -204,8 +205,14 @@ def main():
     ax.set_ylabel(r"$\ln A_{\mathrm{pre}}(\tau_f)$")
     ax.set_xlim(-0.5, 20.5)
 
-    # Legend: moved upward so it won’t cover the red bound
-    ax.legend(loc='lower left', bbox_to_anchor=(0.02, 0.30), frameon=True)
+    # Legend: move to upper-right with light gray background
+    leg = ax.legend(loc='upper right', bbox_to_anchor=(0.98, 0.98),
+                    frameon=True, fancybox=True)
+    frame = leg.get_frame()
+    frame.set_facecolor('#f2f2f2')
+    frame.set_edgecolor('0.80')
+    frame.set_alpha(1.0)
+    frame.set_linewidth(0.6)
 
     # --- CRI reference line with slope = -1/τ̂_fut --------------------------
     # Anchor the line to pass through the earliest central point to match the
@@ -234,12 +241,13 @@ def main():
         bbox=dict(boxstyle="round,pad=0.25", facecolor="white", alpha=0.80, edgecolor="none")
     )
 
-    # Inset (raw A_pre), moved higher; black line + orange dots only
+    # Inset (raw A_pre), moved to lower-left; black line + orange dots only
     ax_ins = inset_axes(
         ax, width='58%', height='52%',
-        loc='lower right',
-        bbox_to_anchor=(0.40, 0.18, 0.58, 0.52),  # y from 0.06 → 0.18
-        bbox_transform=ax.transAxes
+        loc='lower left',
+        bbox_to_anchor=(0.06, 0.10, 1, 1),  # (x0, y0, w, h) in axes coords; w,h ignored for % sizes
+        bbox_transform=ax.transAxes,
+        borderpad=0.2
     )
     ax_ins.plot(band['delta_ms'], A_central, color='black', linewidth=0.9, zorder=2)
     ax_ins.scatter(pts['delta_ms'], A_pts, s=12, color='#FF8C1A', zorder=3)
