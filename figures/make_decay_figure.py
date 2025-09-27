@@ -247,7 +247,8 @@ def main():
             label=rf"CRI slope −1/τ$_{{\mathrm{{fut}}}}$ ({tau_ms:.1f} ms)")
 
     # Slope/τ annotation
-    y_ann = float(band['lnA_low'].min()) - 0.10
+    ymin, ymax = ax.get_ylim()
+    y_ann = ymin + 0.10 * (ymax - ymin)  # 10% above bottom; bump to 0.12–0.15 if needed
     x_ann_axes = 0.60
     ann_txt = (r"$\mathrm{slope} = -1/\tau_{\mathrm{fut}}$"
                + "\n" + rf"$\hat{{\tau}}_{{\mathrm{{fut}}}}={tau_ms:.1f}\,\mathrm{{ms}}$")
@@ -260,13 +261,15 @@ def main():
     # ---------------- Inset (adjustable) ------------------------------------
     #   - Position: args.inset_x / args.inset_y (axes coords, 0..1)
     #   - Size:     args.inset_w / args.inset_h (fractions of axes; turned into "%")
-    inset_w_pct = f"{args.inset_w*110:.0f}%"
+    inset_w_pct = f"{args.inset_w*100:.0f}%"
     inset_h_pct = f"{args.inset_h*100:.0f}%"
-
+    
+    args.inset_x = min(args.inset_x + 0.05, 1.0 - args.inset_w - 0.01)
+    
     ax_ins = inset_axes(
         ax, width=inset_w_pct, height=inset_h_pct,
         loc='lower left',
-        bbox_to_anchor=(args.inset_x, args.inset_y, 1, 2),
+        bbox_to_anchor=(args.inset_x, args.inset_y, 1, 1),
         bbox_transform=ax.transAxes,
         borderpad=0.2
     )
