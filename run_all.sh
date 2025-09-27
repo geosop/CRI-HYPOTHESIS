@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env bash 
 set -euo pipefail
 
 # -----------------------------------------------------------------------------
@@ -88,6 +88,15 @@ echo
 echo "🖼 9) Figure generation (auto-discovery via generate_figures.py)"
 python generate_figures.py
 
+# --- SI EEG Flowchart (Python) ---
+if [[ -f figures/EEG_flowchart_SIfigure1.py ]]; then
+  echo
+  echo "🧠 9b) SI Figure 1 — EEG flowchart (Python)"
+  python figures/EEG_flowchart_SIfigure1.py || { echo "❌ EEG flowchart script failed." >&2; exit 1; }
+else
+  echo "⚠️  figures/EEG_flowchart_SIfigure1.py not found; skipping." >&2
+fi
+
 # --- CRI Main Figure 1 (TikZ → PDF & PNG) ---
 if [[ "${SKIP_TEX}" != "1" ]]; then
   if command -v latexmk >/dev/null 2>&1; then
@@ -121,5 +130,3 @@ fi
 
 echo
 echo "✅ Pipeline complete!"
-
-
