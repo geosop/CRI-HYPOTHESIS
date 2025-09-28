@@ -23,7 +23,12 @@ import os
 import sys
 import argparse
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+
+# Silence Arial not found spam; DejaVu is available on CI runners
+mpl.rcParams["font.family"] = "DejaVu Sans"
+mpl.rcParams["mathtext.fontset"] = "dejavusans"
 
 # Optional YAML overrides (figures/default_params.yml with a "TierA" block)
 try:
@@ -274,7 +279,12 @@ def main():
     if y_line is not None:
         ax_a.plot(tau_fit, y_line, linestyle='-', label='OLS fit')
         if y_lo is not None:
-            ax_a.fill_between(tau_fit, y_lo, y_hi, alpha=0.50, label='95% HC3 band')
+            # Requested: make the 95% HC3 band green and clearly visible
+            ax_a.fill_between(
+                tau_fit, y_lo, y_hi,
+                color='green', alpha=0.50, linewidth=0, zorder=1.3,
+                label='95% HC3 band'
+            )
 
         title_a = (f"log-linear fit (OLS, 95% HC3 CI): "
                    f"slope={slope:.3f} (CI {ci_low:.3f},{ci_high:.3f}); "
@@ -300,7 +310,9 @@ def main():
     q_edges = np.quantile(a_samples, q)
     bins = (-np.inf, q_edges[0], q_edges[2], np.inf)
     labels = ["low a", "mid a", "high a"]
-    colors = {"low a": "tab:black", "mid a": "tab:orange", "high a": "tab:green"}
+
+    # Requested: "low a" should be 'navy'; keep others as they are
+    colors = {"low a": "navy", "mid a": "tab:orange", "high a": "tab:green"}
 
     # Median raw gate per τ_f within each arousal bin
     G_medians = []
