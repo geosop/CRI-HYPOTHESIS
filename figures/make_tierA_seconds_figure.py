@@ -9,12 +9,11 @@ Outputs:
   figures/output/TierA_gate_saturation.pdf/.png
 
 CRI alignment highlights:
-- Slope panel uses a STRICT per-τ gate-on rule:
+- STRICT per-τ gate-on rule for selection into the slope fit:
     median raw G(τ) ≥ gate_thresh  AND  at least min_gate_n & min_gate_frac trials gate-on.
-- ln A_pre(τ) vs τ is fit by a WEIGHTED linear regression (weights = sqrt(# gate-on at τ)).
-- Fit can be restricted to the first window after “gate-on” to avoid late noise-floor points.
-- Gate-saturation panel normalizes medians by arousal quantile and marks τ95 (in seconds)
-  with blue dotted guides. Labels start at the x-axis and auto-offset if two τ95 coincide.
+- Log–linear slope fit is **ordinary least squares (OLS)** with **heteroskedasticity-robust HC3 SEs**.
+- Optional early-window restriction after gate turn-on to avoid late noise-floor points.
+- Gate-saturation panel normalizes medians by arousal quantile and marks τ95 (s).
 
 Author: ADMIN
 """
@@ -75,7 +74,10 @@ DEFAULTS = dict(
     arousal_quantiles=(0.2, 0.5, 0.8),
     baseline_max_s=0.05,      # early window for p0 (seconds)
     plateau_frac=0.90,        # late window start fraction for p_inf
-    sat_level=0.95            # dashed level and τ95 definition
+    sat_level=0.95,           # dashed level and τ95 definition
+
+    # Plotting niceties
+    show_hc3_band=True        # draw a 95% HC3 confidence band around the OLS line
 )
 
 
@@ -103,7 +105,7 @@ def P_of_tau(tau, T0):
     return tau / T0
 
 def simulate_trial_amplitude(a, tau_vals, params, rng):
-    """Return (A_pre, G_raw) arrays for one trial across τ_f grid."""
+    """Return (A_pre, G_raw) arrays for one trial across τ_f grid (Tier-A gate: G(P(τ_f)-p0(a)))."""
     p0a = p0_of_a(a, params["p_base"], params["B_a"], params["mu_a"], params["sigma_a"])
     P_vals = P_of_tau(tau_vals, params["T0"])
     G_vals = G_of_x(P_vals - p0a, params["alpha"])
@@ -122,7 +124,7 @@ def robust_p0_pinf(y, t, baseline_max_s=0.05, plateau_frac=0.90):
     t = np.asarray(t, float)
     # early window
     m0 = t <= baseline_max_s
-    p0 = np.nanmedian(y[m0]) if np.any(m0) else np.nanmedian(y[:max(1, int(0.05 * len(y)))])
+    p0 = np.nanmedian(y[m0]) if np.any(m0) else np.nanmedian(y[:max(1, int(0.05 * len(y)))] )
     # late window
     m1 = t >= plateau_frac * np.nanmax(t)
     p_inf = np.nanmedian(y[m1]) if np.any(m1) else np.nanmedian(y[-max(1, int(0.1 * len(y))):])
@@ -139,6 +141,32 @@ def tau_at_level(t, y, thr):
     """Earliest t where y >= thr; NaN if none."""
     idx = np.where(y >= thr)[0]
     return float(t[idx[0]]) if idx.size else np.nan
+
+
+# -----------------------------
+# OLS + HC3 utilities
+# -----------------------------
+def ols_hc3(X, y):
+    """
+    OLS coefficients and HC3 (heteroskedasticity-robust) covariance.
+    Returns: beta, cov_HC3
+    """
+    X = np.asarray(X, float)
+    y = np.asarray(y, float).reshape(-1, 1)
+    XtX = X.T @ X
+    XtX_inv = np.linalg.inv(XtX)
+    beta = XtX_inv @ (X.T @ y)           # (p x 1)
+    resid = (y - X @ beta).ravel()       # (n,)
+
+    # leverage h_i = x_i^T (X^T X)^{-1} x_i
+    H_diag = np.sum((X @ XtX_inv) * X, axis=1)  # (n,)
+
+    # HC3 meat: X^T diag(e_i^2 / (1 - h_i)^2) X
+    scale = (resid**2) / np.maximum(1.0 - H_diag, 1e-12)**2
+    DX = X * scale[:, None]
+    meat = X.T @ DX
+    cov_hc3 = XtX_inv @ meat @ XtX_inv
+    return beta.ravel(), cov_hc3
 
 
 # -----------------------------
@@ -201,7 +229,6 @@ def main():
 
     # (Optional) restrict to first window after turn-on for stability
     if params.get("use_fit_window", True) and np.any(use):
-        # earliest τ where *median* gate crosses threshold
         hit = np.where(G_med >= params["gate_thresh"])[0]
         if hit.size:
             tau_on = tau_grid[hit[0]]
@@ -211,34 +238,50 @@ def main():
     tau_fit = tau_grid[use]
     y_fit   = np.log(A_med_gate[use])
 
-    # Weighted linear fit (weights ~ sqrt(number of gate-on trials)); center τ for stability
-    slope = np.nan
-    slope_se = np.nan
-    intercept = np.nan
+    # OLS + HC3 robust SEs (no weights)
+    slope = intercept = np.nan
+    slope_se = intercept_se = np.nan
+    ci_low = ci_high = np.nan
+    z = 1.96  # 95% normal approx
+
     if tau_fit.size >= 2:
-        w = np.sqrt(np.maximum(n_on[use], 1))
-        t0 = np.mean(tau_fit)
-        X = tau_fit - t0
-        coef, cov = np.polyfit(X, y_fit, 1, w=w, cov=True)
-        slope, b0 = coef
-        intercept = b0 - slope * t0
-        slope_se = float(np.sqrt(max(cov[0, 0], 0.0)))
-    z = 1.96
-    slope_ci = (slope - z * slope_se, slope + z * slope_se) if np.isfinite(slope) else (np.nan, np.nan)
-    tau_fut_hat = -1.0 / slope if (np.isfinite(slope) and slope < 0) else np.nan
+        X = np.column_stack([np.ones_like(tau_fit), tau_fit])   # [1, τ]
+        beta, cov_hc3 = ols_hc3(X, y_fit)
+        intercept, slope = beta[0], beta[1]
+        intercept_se = float(np.sqrt(max(cov_hc3[0, 0], 0.0)))
+        slope_se     = float(np.sqrt(max(cov_hc3[1, 1], 0.0)))
+        ci_low, ci_high = slope - z * slope_se, slope + z * slope_se
+        tau_fut_hat = -1.0 / slope if (np.isfinite(slope) and slope < 0) else np.nan
+    else:
+        tau_fut_hat = np.nan
+
+    # Fitted line and optional 95% HC3 band
+    y_line = intercept + slope * tau_fit if np.isfinite(slope) else None
+    y_lo = y_hi = None
+    if params.get("show_hc3_band", True) and np.isfinite(slope):
+        # For each x0 = [1, τ], Var(yhat) = x0^T Cov(beta) x0
+        X0 = np.column_stack([np.ones_like(tau_fit), tau_fit])
+        var_yhat = np.sum(X0 @ cov_hc3 * X0, axis=1)
+        se_yhat = np.sqrt(np.maximum(var_yhat, 0.0))
+        y_lo = y_line - z * se_yhat
+        y_hi = y_line + z * se_yhat
 
     # Plot panel (a)
-    fig_a, ax_a = plt.subplots(figsize=(5.0, 4.0))
+    fig_a, ax_a = plt.subplots(figsize=(5.2, 4.0))
     ax_a.plot(tau_fit, y_fit, marker='o', linestyle='none',
               label='Median ln $A_{\\mathrm{pre}}$ (gate-on)')
-    if np.isfinite(slope):
-        y_line = intercept + slope * tau_fit
-        ax_a.plot(tau_fit, y_line, linestyle='-', label='Linear fit')
-        title_a = (f"log-linear fit: slope={slope:.3f} "
-                   f"(95% CI {slope_ci[0]:.3f},{slope_ci[1]:.3f}); "
+
+    if y_line is not None:
+        ax_a.plot(tau_fit, y_line, linestyle='-', label='OLS fit')
+        if y_lo is not None:
+            ax_a.fill_between(tau_fit, y_lo, y_hi, alpha=0.18, label='95% HC3 band')
+
+        title_a = (f"log-linear fit (OLS, 95% HC3 CI): "
+                   f"slope={slope:.3f} (CI {ci_low:.3f},{ci_high:.3f}); "
                    f"$\\widehat{{\\tau}}_{{\\mathrm{{fut}}}}$={tau_fut_hat:.3f}s")
     else:
         title_a = "log-linear fit (insufficient gate-on τ)"
+
     ax_a.set_title(title_a)
     ax_a.set_xlabel(r"$\tau_f$ (s)")
     ax_a.set_ylabel(r"$\ln A_{\mathrm{pre}}(\tau_f)$")
@@ -276,19 +319,15 @@ def main():
         G_norms.append(Gn)
         taus_95.append(tau_at_level(tau_grid, Gn, params["sat_level"]))
 
-    # Plot gate saturation (make green twice as thick as blue; draw green last)
-    fig_b, ax_b = plt.subplots(figsize=(5.0, 4.0)) 
-    
-    colors = {"low a": "tab:blue", "mid a": "tab:orange", "high a": "tab:green"}
+    # Plot gate saturation (draw green last so it isn't covered)
+    fig_b, ax_b = plt.subplots(figsize=(5.2, 4.0))
     lw_low = 1.6
-    lw_map = {"low a": lw_low, "mid a": 1.2*lw_low, "high a": 2.0*lw_low}
-  
-    # draw order -> green last so it isn't covered
-    plot_order = ["mid a", "high a", "low a"]
+    lw_map = {"low a": lw_low, "mid a": 1.2 * lw_low, "high a": 2.0 * lw_low}
+    plot_order = ["mid a", "high a", "low a"]  # ensures green on top
     for lab in plot_order:
         Gn = G_norms[labels.index(lab)]
         ax_b.plot(tau_grid, Gn, label=lab, color=colors[lab], lw=lw_map[lab], zorder=2)
-  
+
     # Horizontal saturation line
     ax_b.axhline(params["sat_level"], color="0.3", ls="--", lw=1.0, zorder=0)
 
@@ -303,7 +342,7 @@ def main():
     handles, leg_labels = ax_b.get_legend_handles_labels()
     order = [leg_labels.index("low a"), leg_labels.index("mid a"), leg_labels.index("high a")]
     ax_b.legend([handles[i] for i in order], [leg_labels[i] for i in order], frameon=False)
-  
+
     # --- τ95 markers: vertical blue guides + bottom-anchored labels with auto-offset
     vline_kw = dict(color="tab:blue", ls=":", lw=1.15, zorder=1)
     base_y   = ax_b.get_ylim()[0]
@@ -323,12 +362,8 @@ def main():
         t95 = t95_map.get(lab, np.nan)
         if not np.isfinite(t95):
             continue
-        # vertical dotted guide (blue)
         ax_b.axvline(t95, **vline_kw)
-
-        # default placement
         dx_pt, ha = 0, "center"
-        # if coincident with an earlier label, offset
         for prev in labels:
             if prev == lab:
                 break
@@ -337,7 +372,6 @@ def main():
                 dx_pt, ha = _offset_for(lab)
                 break
 
-        # label starts at the x-axis and grows upward
         ax_b.annotate(
             rf"$\tau_{{95}}$({lab}) = {t95:.2f} s",
             xy=(t95, base_y), xycoords="data",
