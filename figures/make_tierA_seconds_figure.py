@@ -271,32 +271,28 @@ def main():
         y_lo = y_line - z * se_yhat
         y_hi = y_line + z * se_yhat
 
-    
-    
-  
-  
     # Plot panel (a)
     fig_a, ax_a = plt.subplots(figsize=(5.2, 4.0))
 
-    # data points on top
+    # 1) Points on top
     ax_a.plot(
         tau_fit, y_fit, marker='o', linestyle='none',
-        label='Median ln $A_{\\mathrm{pre}}$ (gate-on)', zorder=2.2
+        label='Median ln $A_{\\mathrm{pre}}$ (gate-on)', zorder=2.4
     )
 
     if y_line is not None:
-        # --- draw 95% HC3 band FIRST, behind line/points
+        # 2) Band fill FIRST (behind line/points)
         if y_lo is not None:
             ax_a.fill_between(
                 tau_fit, y_lo, y_hi,
-                facecolor='green', edgecolor='green', linewidth=0.8,
+                facecolor='green', edgecolor='none',
                 alpha=0.25, zorder=1.3, label='95% HC3 band'
             )
-            # emphasize the band edges (no legend entry)
-            ax_a.plot(tau_fit, y_lo, color='green', lw=0.8, alpha=0.9, zorder=1.8, label='_nolegend_')
-            ax_a.plot(tau_fit, y_hi, color='green', lw=0.8, alpha=0.9, zorder=1.8, label='_nolegend_')
+            # 3) Band edges slightly ABOVE the orange line for visibility
+            ax_a.plot(tau_fit, y_lo, color='green', lw=0.8, alpha=0.95, zorder=2.15, label='_nolegend_')
+            ax_a.plot(tau_fit, y_hi, color='green', lw=0.8, alpha=0.95, zorder=2.15, label='_nolegend_')
 
-        # OLS fit above the band, below the points
+        # 4) OLS line between band and points
         ax_a.plot(tau_fit, y_line, color='tab:orange', lw=2.0, zorder=2.1, label='OLS fit')
 
         title_a = (f"log-linear fit (OLS, 95% HC3 CI): "
@@ -311,6 +307,7 @@ def main():
     ax_a.legend(frameon=False)
     ax_a.grid(True, alpha=0.3)
     fig_a.tight_layout()
+
 
     # (optional) a bit more pixel resolution helps thin bands show up
     for ext in ("pdf", "png"):
