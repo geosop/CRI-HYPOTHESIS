@@ -274,11 +274,9 @@ def main():
     # Plot panel (a)
     fig_a, ax_a = plt.subplots(figsize=(5.2, 4.0))
 
-    # 1) Points on top
-    ax_a.plot(
-        tau_fit, y_fit, marker='o', linestyle='none',
-        label='Median ln $A_{\\mathrm{pre}}$ (gate-on)', zorder=2.4
-    )
+    # 1) Points on very top 
+    ax_a.plot(tau_fit, y_fit, marker='o', linestyle='none',
+              label='Median ln $A_{\\mathrm{pre}}$ (gate-on)', zorder=2.4)
 
     if y_line is not None:
         # 2) Band fill FIRST (behind line/points)
@@ -288,9 +286,9 @@ def main():
                 facecolor='green', edgecolor='none',
                 alpha=0.25, zorder=1.3, label='95% HC3 band'
             )
-            # 3) Band edges slightly ABOVE the orange line for visibility
-            ax_a.plot(tau_fit, y_lo, color='green', lw=0.8, alpha=0.95, zorder=2.15, label='_nolegend_')
-            ax_a.plot(tau_fit, y_hi, color='green', lw=0.8, alpha=0.95, zorder=2.15, label='_nolegend_')
+            # 3) Band edges, BELOW the orange line so they never cover it
+            ax_a.plot(tau_fit, y_lo, color='green', lw=0.8, alpha=0.9, zorder=2.0, label='_nolegend_')
+            ax_a.plot(tau_fit, y_hi, color='green', lw=0.8, alpha=0.9, zorder=2.0, label='_nolegend_')
 
         # 4) OLS line between band and points
         ax_a.plot(tau_fit, y_line, color='tab:orange', lw=2.0, zorder=2.1, label='OLS fit')
