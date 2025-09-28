@@ -274,7 +274,7 @@ def main():
     if y_line is not None:
         ax_a.plot(tau_fit, y_line, linestyle='-', label='OLS fit')
         if y_lo is not None:
-            ax_a.fill_between(tau_fit, y_lo, y_hi, alpha=0.18, label='95% HC3 band')
+            ax_a.fill_between(tau_fit, y_lo, y_hi, alpha=0.50, label='95% HC3 band')
 
         title_a = (f"log-linear fit (OLS, 95% HC3 CI): "
                    f"slope={slope:.3f} (CI {ci_low:.3f},{ci_high:.3f}); "
@@ -300,7 +300,7 @@ def main():
     q_edges = np.quantile(a_samples, q)
     bins = (-np.inf, q_edges[0], q_edges[2], np.inf)
     labels = ["low a", "mid a", "high a"]
-    colors = {"low a": "tab:blue", "mid a": "tab:orange", "high a": "tab:green"}
+    colors = {"low a": "tab:black", "mid a": "tab:orange", "high a": "tab:green"}
 
     # Median raw gate per τ_f within each arousal bin
     G_medians = []
