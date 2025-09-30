@@ -210,14 +210,16 @@ def main():
         A_trials[i] = A_i
         G_trials[i] = G_i
 
+   
+  
     # ============================================================
     # Panel (a): CRI-grade slope fit with strict gate-on selection
     # ============================================================
     # Per-τ diagnostics
-    G_med = np.median(G_trials, axis=0)                              # median raw G at each τ
-    n_on  = (G_trials >= params["gate_thresh"]).sum(axis=0)          # # gate-on trials at τ
+    G_med = np.median(G_trials, axis=0)                             # median raw G at each τ
+    n_on  = (G_trials >= params["gate_thresh"]).sum(axis=0)         # # gate-on trials at τ
     need_n = max(params["min_gate_n"], int(params["min_gate_frac"] * params["N_TRIALS"]))
-    gate_mask = (G_med >= params["gate_thresh"]) & (n_on >= need_n)  # τ usable for fit
+    gate_mask = (G_med >= params["gate_thresh"]) & (n_on >= need_n) # τ usable for fit
 
     # Baseline-corrected amplitude medians (over gate-on trials only)
     A_bc = A_trials - params["C_true"]
@@ -247,7 +249,7 @@ def main():
     slope = intercept = np.nan
     slope_se = intercept_se = np.nan
     ci_low = ci_high = np.nan
-    z = 1.96  # 95% normal approx
+    z = 1.96  # 95% normal approx (Z)
 
     if tau_fit.size >= 2:
         X = np.column_stack([np.ones_like(tau_fit), tau_fit])   # [1, τ]
@@ -259,14 +261,15 @@ def main():
         tau_fut_hat = -1.0 / slope if (np.isfinite(slope) and slope < 0) else np.nan
     else:
         tau_fut_hat = np.nan
+        cov_hc3 = None
 
     # Fitted line and optional 95% HC3 band
     y_line = intercept + slope * tau_fit if np.isfinite(slope) else None
     y_lo = y_hi = None
-    if params.get("show_hc3_band", True) and np.isfinite(slope):
-        # For each x0 = [1, τ], Var(yhat) = x0^T Cov(beta) x0
+    if params.get("show_hc3_band", True) and np.isfinite(slope) and cov_hc3 is not None:
+        # For each row v=[1, τ], Var(ŷ)=v^T Cov(beta) v = diag(X0 @ Cov @ X0^T)
         X0 = np.column_stack([np.ones_like(tau_fit), tau_fit])
-        var_yhat = np.sum(X0 @ cov_hc3 * X0, axis=1)
+        var_yhat = np.sum((X0 @ cov_hc3) * X0, axis=1)
         se_yhat = np.sqrt(np.maximum(var_yhat, 0.0))
         y_lo = y_line - z * se_yhat
         y_hi = y_line + z * se_yhat
@@ -274,13 +277,18 @@ def main():
     # Plot panel (a)
     fig_a, ax_a = plt.subplots(figsize=(5.2, 4.0))
 
-    # 1) Points on very top 
-    ax_a.plot(tau_fit, y_fit, marker='o', linestyle='none',
-              label='Median ln $A_{\\mathrm{pre}}$ (gate-on)', zorder=2.4)
+    # 1) Points on very top
+    ax_a.plot(
+        tau_fit, y_fit,
+        marker='o', linestyle='none',
+        label='Median ln $A_{\\mathrm{pre}}$ (gate-on)',
+        zorder=2.4
+    )
 
+    title = None
     if y_line is not None:
         # 2) Band fill FIRST (behind line/points)
-        if y_lo is not None:
+        if y_lo is not None and y_hi is not None:
             ax_a.fill_between(
                 tau_fit, y_lo, y_hi,
                 facecolor='green', edgecolor='none',
@@ -293,24 +301,29 @@ def main():
         # 4) OLS line between band and points
         ax_a.plot(tau_fit, y_line, color='tab:orange', lw=2.0, zorder=2.1, label='OLS fit')
 
-        title_a = (f"log-linear fit (OLS, 95% HC3 CI): "
-                   f"slope={slope:.3f} (CI {ci_low:.3f},{ci_high:.3f}); "
-                   f"$\\widehat{{\\tau}}_{{\\mathrm{{fut}}}}$={tau_fut_hat:.3f}s")
+        # Two-line title: headline + metrics
+        title = (
+            r"log-linear fit (OLS) with 95% HC3 CI" + "\n" +
+            rf"slope = {slope:.3f} (CI {ci_low:.3f}, {ci_high:.3f}); "
+            rf"$\widehat{{\tau}}_{{\mathrm{{fut}}}}$ = {tau_fut_hat:.3f} s"
+        )
     else:
-        title_a = "log-linear fit (insufficient gate-on τ)"
+        # Two-line fallback when not enough τ are gate-on
+        title = "log-linear fit\n(insufficient gate-on $\\tau$)"
 
-    ax_a.set_title(title_a)
+    ax_a.set_title(title, pad=8)
     ax_a.set_xlabel(r"$\tau_f$ (s)")
     ax_a.set_ylabel(r"$\ln A_{\mathrm{pre}}(\tau_f)$")
     ax_a.legend(frameon=False)
     ax_a.grid(True, alpha=0.3)
+    ax_a.margins(x=0.02, y=0.02)
     fig_a.tight_layout()
-
 
     # (optional) a bit more pixel resolution helps thin bands show up
     for ext in ("pdf", "png"):
-        fig_a.savefig(os.path.join(args.outdir, f"TierA_decay_loglinear.{ext}"),
-                      bbox_inches="tight", dpi=200 if ext == "png" else None)
+        fn = os.path.join(args.outdir, f"TierA_decay_loglinear.{ext}")
+        fig_a.savefig(fn, bbox_inches="tight", dpi=200 if ext == "png" else None)
+
 
     # ============================================================
     # Panel (b): gate saturation across arousal quantiles (normalized)
