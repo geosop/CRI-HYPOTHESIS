@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-figures/make_logistic_figure.py  •  CRI v0.1-SIM
+figures/make_logistic_figure.py  •  CRI v0.2-SIM (two-condition + Bernoulli fit)
 
-Render Box-2(b): logistic “tipping point” with a light-teal 95% bootstrap CI,
-solid blue fitted sigmoid, orange observed points, dashed vertical line at p0̂,
-and an inset showing dG/dp peaking at p0̂.
+Render Box-2(b): logistic “tipping point” with two arousal levels.
+- Light-teal 95% bootstrap CI ribbons for each curve
+- Solid lines for fitted sigmoids
+- Orange bin-mean markers (visualization only; fits are trial-wise)
+- Dashed vertical lines at p0-hats for each condition
+- Inset showing dG/dq peaking at each p0-hat
 
 Usage:
     python figures/make_logistic_figure.py
@@ -17,95 +20,106 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 mpl.rcParams.update({
-    "font.family":"Arial","font.size":8,
-    "axes.linewidth":0.6,"lines.linewidth":1.0,
-    "legend.fontsize":6,"xtick.labelsize":7,"ytick.labelsize":7,
-    "pdf.fonttype":42,"ps.fonttype":42,  # embed TrueType
+    "font.family": "DejaVu Sans",  # portable
+    "font.size":   8,
+    "axes.linewidth": 0.6,
+    "lines.linewidth": 1.0,
+    "legend.fontsize": 6,
+    "xtick.labelsize": 7,
+    "ytick.labelsize": 7,
+    "pdf.fonttype": 42,
+    "ps.fonttype": 42,
 })
 
-def load_params(path):
-    with open(path,'r', encoding='utf-8') as f:
+def load_gate_params(path):
+    with open(path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)['logistic']
-
-def logistic(p, p0, alpha):
-    return 1.0/(1.0 + np.exp(-(p - p0)/alpha))
-
-def dlogistic_dp(p, p0, alpha):
-    k = 1.0/alpha
-    e = np.exp(-k*(p - p0))
-    return k*e/(1.0 + e)**2
 
 def main():
     here   = os.path.dirname(__file__)
     repo   = os.path.abspath(os.path.join(here, os.pardir))
     gate   = os.path.join(repo, 'logistic_gate')
-    params = load_params(os.path.join(gate, 'default_params.yml'))
+    params = load_gate_params(os.path.join(gate, 'default_params.yml'))
+    out_dir = os.path.join(here, 'output')
+    os.makedirs(out_dir, exist_ok=True)
 
-    # Inputs
-    df_curve = pd.read_csv(f'{gate}/output/logistic_curve.csv')    # p, G_true (not strictly needed)
-    df_band  = pd.read_csv(f'{gate}/output/logistic_band.csv')     # p, G_central, G_low, G_high
-    df_fit   = pd.read_csv(f'{gate}/output/fit_logistic_results.csv')
-    df_obs   = pd.read_csv(f'{gate}/output/logistic_data.csv')
+    # Inputs from gate-fitting
+    df_band = pd.read_csv(os.path.join(gate, 'output', 'logistic_band.csv'))        # q + ribbons
+    df_fit  = pd.read_csv(os.path.join(gate, 'output', 'fit_logistic_results.csv')) # p0s, alpha, Δp0
+    df_bins = pd.read_csv(os.path.join(gate, 'output', 'logistic_bins.csv'))        # bin means for orange markers
+    df_der  = pd.read_csv(os.path.join(gate, 'output', 'logistic_derivative.csv'))  # dG/dq curves
 
-    p_cont  = df_band['p'].values
-    G_ctr   = df_band['G_central'].values
-    G_low   = df_band['G_low'].values
-    G_high  = df_band['G_high'].values
-    p_obs   = df_obs['p'].values
-    G_obs   = df_obs['G_obs'].values
+    # Determine if two-condition or one
+    two = 'G_central_a2' in df_band.columns
 
-    p0_hat  = df_fit['p0_hat'].iloc[0]
-    alpha_hat = df_fit['alpha_hat'].iloc[0]
+    # Colors
+    col_teal1 = "#6EC5B8"
+    col_teal2 = "#9ADBD2"
+    col_blue1 = "#1f77b4"
+    col_purp2 = "#7f3c8d"
+    col_orng  = "#FF8C1A"
+    col_grey  = "0.45"
 
-    # Colors (solid blue line, light-teal CI, orange circles)
-    col_blue = "#1f77b4"
-    col_teal = "#6EC5B8"
-    col_orng = "#FF8C1A"
+    fig, ax = plt.subplots(figsize=(88/25.4, (88/1.55)/25.4))
 
-    # Figure
-    fig, ax = plt.subplots(figsize=(88/25.4, (88/1.5)/25.4))
+    # CI bands
+    ax.fill_between(df_band['q'], df_band['G_low_a1'], df_band['G_high_a1'],
+                    facecolor=col_teal1, alpha=0.45, edgecolor=col_teal1, linewidth=0.6,
+                    label=f"{params['ci_percent']}% CI (bootstrap) — a1")
+    ax.plot(df_band['q'], df_band['G_central_a1'], color=col_blue1, linewidth=1.2,
+            label=r"Fitted $G(q\mid a_1)$")
 
-    # CI band (light-teal, visible)
-    ax.fill_between(p_cont, G_low, G_high,
-                    facecolor=col_teal, alpha=0.45, edgecolor=col_teal, linewidth=0.6,
-                    label=f"{params['ci_percent']}% CI (bootstrap)")
+    if two:
+        ax.fill_between(df_band['q'], df_band['G_low_a2'], df_band['G_high_a2'],
+                        facecolor=col_teal2, alpha=0.45, edgecolor=col_teal2, linewidth=0.6,
+                        label=f"{params['ci_percent']}% CI (bootstrap) — a2")
+        ax.plot(df_band['q'], df_band['G_central_a2'], color=col_purp2, linewidth=1.2,
+                label=r"Fitted $G(q\mid a_2)$")
 
-    # Fitted logistic (solid blue line)
-    ax.plot(p_cont, G_ctr, color=col_blue, linewidth=1.2, label=r"Fitted logistic $G(p\mid a)$")
+    # Orange bin-mean markers per condition
+    for a_val, df_a in df_bins.groupby('a'):
+        ax.scatter(df_a['q_bin_center'], df_a['rate_mean'], s=18,
+                   facecolors=col_orng, edgecolors='black', linewidths=0.4,
+                   label=f"Bin means (a={a_val:.2f})")
 
-    # Observed orange circles with thin black edge
-    ax.scatter(p_obs, G_obs, s=18, facecolors=col_orng, edgecolors='black', linewidths=0.4,
-               label="Observed")
+    # Vertical dashed lines at p0 hats
+    p0_a1 = df_fit['p0_hat_a1'].iloc[0]
+    ax.axvline(p0_a1, color=col_grey, linestyle='--', linewidth=0.8,
+               label=rf"$p_0(a_1)={p0_a1:.2f}$")
+    if two and 'p0_hat_a2' in df_fit.columns and not np.isnan(df_fit['p0_hat_a2'].iloc[0]):
+        p0_a2 = df_fit['p0_hat_a2'].iloc[0]
+        ax.axvline(p0_a2, color='0.30', linestyle='--', linewidth=0.8,
+                   label=rf"$p_0(a_2)={p0_a2:.2f}$")
 
-    # Vertical dashed at p0̂
-    ax.axvline(p0_hat, color='grey', linestyle='--', linewidth=0.8, label=rf"$p_0={p0_hat:.2f}$")
-
-    # Axes & legend
+    # Axes
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.set_xlabel(r"$p$")
-    ax.set_ylabel(r"$G(p\mid a)$")
+    ax.set_xlabel(r"$q$")
+    ax.set_ylabel(r"$G(q\mid a)$")
     ax.legend(loc='upper left', frameon=True)
 
-    # Inset: derivative dG/dp; dashed line at p0̂
+    # Inset: derivative(s) dG/dq
     ax_ins = inset_axes(ax, width='70%', height='70%',
                         loc='lower left', bbox_to_anchor=(0.62, 0.27, 0.38, 0.38),
                         bbox_transform=ax.transAxes)
-    ax_ins.plot(p_cont, dlogistic_dp(p_cont, p0_hat, alpha_hat), color=col_blue, linewidth=0.9)
-    ax_ins.axvline(p0_hat, color='grey', linestyle='--', linewidth=0.7)
-    ax_ins.set_title(r'$\mathrm{d}G/\mathrm{d}p$', fontsize=8)
-    ax_ins.set_xlabel(r"$p$", fontsize=7)
+    ax_ins.plot(df_der['q'], df_der['dGdq_a1'], color=col_blue1, linewidth=0.9, label=r"$\mathrm{d}G/\mathrm{d}q$ (a$_1$)")
+    if 'dGdq_a2' in df_der.columns:
+        ax_ins.plot(df_der['q'], df_der['dGdq_a2'], color=col_purp2, linewidth=0.9, label=r"$\mathrm{d}G/\mathrm{d}q$ (a$_2$)")
+    ax_ins.axvline(p0_a1, color=col_grey, linestyle='--', linewidth=0.7)
+    if two and 'p0_a2' in locals():
+        ax_ins.axvline(p0_a2, color='0.30', linestyle='--', linewidth=0.7)
+    ax_ins.set_title(r'$\mathrm{d}G/\mathrm{d}q$', fontsize=8)
+    ax_ins.set_xlabel(r"$q$", fontsize=7)
     ax_ins.set_ylabel("Rate", fontsize=7)
     ax_ins.set_xlim(0, 1)
     ax_ins.tick_params(labelsize=6)
+    ax_ins.legend(loc='upper right', frameon=False, fontsize=5)
 
     # Save
-    out = os.path.join(here, 'output')
-    os.makedirs(out, exist_ok=True)
-    pdf = os.path.join(out, 'Box2b_logistic_refined.pdf')
-    png = os.path.join(out, 'Box2b_logistic_refined.png')
+    pdf = os.path.join(out_dir, 'Box2b_logistic_refined.pdf')
+    png = os.path.join(out_dir, 'Box2b_logistic_refined.png')
     fig.savefig(pdf, bbox_inches='tight')
-    fig.savefig(png, dpi=params.get('figure_dpi', 1200), bbox_inches='tight')
+    fig.savefig(png, dpi=int(params.get('figure_dpi', 1200)), bbox_inches='tight')
     plt.close(fig)
     print(f"Saved logistic figure → {pdf} and {png}")
 
