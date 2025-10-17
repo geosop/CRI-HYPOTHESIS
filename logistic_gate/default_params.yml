@@ -1,24 +1,39 @@
 logistic:
   seed: 52
-  p_min: 0.0
-  p_max: 1.0
+
+  # Domain for the gate input
+  q_min: 0.0
+  q_max: 1.0
   n_points: 400
 
-  # Illustration priors (Box 2b)
-  p0: 0.5
-  alpha: 0.05
-  noise_std: 0.05
+  # Two-condition settings (arousal levels for illustration in Box 2b)
+  use_two_conditions: true
+  a1: 0.30
+  a2: 0.70
+
+  # Ground-truth parameters for synthetic data
+  p0_a1: 0.50
+  p0_a2: 0.55        # show a detectable shift Δp0 ≈ +0.05
+  alpha: 0.05        # shared true alpha
 
   # Fitting initial guesses
-  p0_guess: 0.5
+  p0_guess_a1: 0.50
+  p0_guess_a2: 0.52
   alpha_guess: 0.05
+  share_alpha: true  # fit shared alpha across conditions
 
-  # Bootstrap and CI settings
+  # Sampling for trials
+  q_sampling: "uniform"   # "uniform" | "random"
+  n_trials_a1: 60
+  n_trials_a2: 60
+
+  # Binning only for visualization of orange markers (not for fitting)
+  n_bins: 15
+
+  # Bootstrap settings for CI bands
   n_bootstrap: 2000
   ci_percent: 95
 
-  # Observed samples used to fit (ensure >= 20)
-  n_obs: 25
-
   # Figure export
   figure_dpi: 1200
+
