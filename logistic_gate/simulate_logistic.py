@@ -12,9 +12,6 @@ Writes:
       q, y, a   (trial-wise Bernoulli outcomes)
   - logistic_gate/output/logistic_bins.csv
       q_bin_center, rate_mean, n_bin, a  (bin means for visualization ONLY)
-
-Usage:
-    python logistic_gate/simulate_logistic.py
 """
 import os, sys, yaml
 import numpy as np
@@ -34,7 +31,7 @@ def load_params():
     path = os.path.join(here, 'default_params.yml')
     with open(path, 'r', encoding='utf-8') as f:
         p = yaml.safe_load(f)['logistic']
-    # Back-compat if older keys exist
+    # Back-compat
     if 'q_min' not in p and 'p_min' in p: p['q_min'] = p['p_min']
     if 'q_max' not in p and 'p_max' in p: p['q_max'] = p['p_max']
     if 'n_points' not in p: p['n_points'] = 400
@@ -47,7 +44,6 @@ def logistic(q, p0, alpha):
 def _sample_q(rng, n, q_min, q_max, mode):
     if str(mode).lower() == "uniform":
         return np.linspace(q_min, q_max, n)
-    # random iid in [q_min, q_max]
     return rng.uniform(q_min, q_max, size=n)
 
 def main():
@@ -71,26 +67,23 @@ def main():
     q_a1 = _sample_q(rng, int(p['n_trials_a1']), p['q_min'], p['q_max'], p['q_sampling'])
     prob_a1 = logistic(q_a1, p['p0_a1'], p['alpha'])
     y_a1 = rng.binomial(1, prob_a1)
-    trials.append(pd.DataFrame({'q': q_a1, 'y': y_a1, 'a': np.full_like(q_a1, fill_value=p['a1'], dtype=float)}))
+    trials.append(pd.DataFrame({'q': q_a1, 'y': y_a1, 'a': np.full_like(q_a1, p['a1'], dtype=float)}))
 
     # Optional condition a2
-    use_two = bool(p.get('use_two_conditions', True))
-    if use_two:
+    if bool(p.get('use_two_conditions', True)):
         G_a2 = logistic(q_grid, p['p0_a2'], p['alpha'])
         data['G_a2'] = G_a2
-
         q_a2 = _sample_q(rng, int(p['n_trials_a2']), p['q_min'], p['q_max'], p['q_sampling'])
         prob_a2 = logistic(q_a2, p['p0_a2'], p['alpha'])
         y_a2 = rng.binomial(1, prob_a2)
-        trials.append(pd.DataFrame({'q': q_a2, 'y': y_a2, 'a': np.full_like(q_a2, fill_value=p['a2'], dtype=float)}))
+        trials.append(pd.DataFrame({'q': q_a2, 'y': y_a2, 'a': np.full_like(q_a2, p['a2'], dtype=float)}))
 
     # Write dense noiseless curves
     pd.DataFrame(data).to_csv(os.path.join(out, 'logistic_curve.csv'), index=False)
 
     # Write trials
-    df_trials = pd.concat(trials, ignore_index=True)
-    df_trials = df_trials.sort_values('q').reset_index(drop=True)
-    pd.DataFrame(df_trials).to_csv(os.path.join(out, 'logistic_trials.csv'), index=False)
+    df_trials = pd.concat(trials, ignore_index=True).sort_values('q').reset_index(drop=True)
+    df_trials.to_csv(os.path.join(out, 'logistic_trials.csv'), index=False)
 
     # Bin means for visualization only
     bins = int(p['n_bins'])
@@ -99,7 +92,7 @@ def main():
     rows = []
     for a_val, df_a in df_trials.groupby('a'):
         counts, _ = np.histogram(df_a['q'].values, bins=edges)
-        sums, _   = np.histogram(df_a['q'].values, bins=edges, weights=df_a['y'].values.astype(float))
+        sums, _   = np.histogram(df_a['q'].values, bins=edges, weights=df_a['y'].astype(float))
         with np.errstate(invalid='ignore', divide='ignore'):
             means = np.where(counts > 0, sums / counts, np.nan)
         for c, m, n in zip(bin_centers, means, counts):
