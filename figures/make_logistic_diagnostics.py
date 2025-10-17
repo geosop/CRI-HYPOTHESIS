@@ -67,12 +67,37 @@ def main():
     ax1.set_xlabel(r"$q$"); ax1.set_ylabel(r"$G(q)$")
     ax1.legend(loc='lower right', frameon=True)
 
-    # --- Bottom: calibration curve with Wilson CIs ---
+        # --- Bottom: calibration curve with Wilson CIs (sanitized) ---
+    def _clean_calib(df):
+        # clamp to [0,1], drop NaNs, ensure non-negative error bars
+        df = df.copy()
+        for col in ("pred_mean", "obs_rate", "lo", "hi"):
+            df[col] = df[col].astype(float)
+            df[col] = df[col].clip(0.0, 1.0)
+        df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=["pred_mean","obs_rate","lo","hi","n_bin"])
+        # enforce lo <= obs <= hi
+        df["lo"] = np.minimum(df["lo"], df["hi"])
+        df["obs_rate"] = df[["obs_rate","lo"]].max(axis=1)
+        df["obs_rate"] = df[["obs_rate","hi"]].min(axis=1)
+        # yerr must be non-negative
+        df["err_lo"] = np.maximum(df["obs_rate"] - df["lo"], 0.0)
+        df["err_hi"] = np.maximum(df["hi"] - df["obs_rate"], 0.0)
+        # keep bins with positive width and finite errors
+        df = df[(df["err_lo"].notna()) & (df["err_hi"].notna())]
+        return df
+
     for a_val, df_a in calib.groupby('a'):
-        ax2.errorbar(df_a['pred_mean'], df_a['obs_rate'],
-                     yerr=[df_a['obs_rate']-df_a['lo'], df_a['hi']-df_a['obs_rate']],
-                     fmt='o', ms=3.5, capsize=1.5, label=f"Calibration (a={a_val})")
-    ax2.plot([0,1],[0,1], ls='--', color='0.5', lw=1.0, label="Perfect calibration")
+        dfc = _clean_calib(df_a)
+        if not len(dfc):
+            continue
+        yerr = np.vstack([dfc["err_lo"].values, dfc["err_hi"].values])
+        ax2.errorbar(
+            dfc['pred_mean'].values,
+            dfc['obs_rate'].values,
+            yerr=yerr,
+            fmt='o', ms=3.5, capsize=1.5,
+            label=f"Calibration (a={a_val})"
+        )
 
     # Annotate Brier/ECE
     def metric_val(name, a):
