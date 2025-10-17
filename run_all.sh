@@ -114,6 +114,34 @@ echo
 echo "🖼 9) Figure generation (auto-discovery via generate_figures.py)"
 run_py generate_figures.py
 
+# --- SI diagnostics: logistic gate (kernel smoother + calibration) ---
+if [[ "${CRI_SKIP_DIAG:-0}" != "1" ]]; then
+  if [[ -f figures/make_logistic_diagnostics.py ]]; then
+    echo
+    echo "🩺 9c) SI diagnostics — logistic gating (kernel smoother + calibration)"
+    # Ensure required inputs exist; if not, generate them
+    NEEDS=("logistic_gate/output/logistic_band.csv"
+           "logistic_gate/output/logistic_derivative.csv"
+           "logistic_gate/output/logistic_kernel.csv"
+           "logistic_gate/output/logistic_calibration.csv"
+           "logistic_gate/output/logistic_calibration_metrics.csv")
+    MISSING=0
+    for f in "${NEEDS[@]}"; do
+      [[ -f "$f" ]] || MISSING=1
+    done
+    if [[ "$MISSING" == "1" ]]; then
+      echo "ℹ️  Diagnostics inputs missing → generating via simulate_logistic.py and fit_logistic.py"
+      run_py logistic_gate/simulate_logistic.py
+      run_py logistic_gate/fit_logistic.py
+    fi
+    run_py figures/make_logistic_diagnostics.py || { echo "❌ Diagnostics figure failed." >&2; exit 1; }
+  else
+    echo "⚠️  figures/make_logistic_diagnostics.py not found; skipping." >&2
+  fi
+else
+  echo "ℹ️  CRI_SKIP_DIAG=1 — skipping SI diagnostics."
+fi
+
 # --- SI EEG Flowchart (Python) ---
 if [[ -f figures/EEG_flowchart_SIfigure1.py ]]; then
   echo
