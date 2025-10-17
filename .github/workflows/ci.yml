@@ -2,7 +2,16 @@ name: build-and-test
 
 on:
   push:
+    branches: [ main ]       # only main pushes
+    tags:     [ 'v*' ]       # optional: releases
   pull_request:
+    branches: [ main ]       # PRs targeting main
+    types: [ opened, synchronize, reopened ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   figures:
