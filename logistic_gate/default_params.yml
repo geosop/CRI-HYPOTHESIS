@@ -34,6 +34,14 @@ logistic:
   n_bootstrap: 2000
   ci_percent: 95
 
+    # Kernel-smoother diagnostic (Option-2, SI only)
+  kernel_enabled: true
+  kernel_bandwidth: 0.08     # Gaussian kernel bandwidth in q units
+  kernel_bootstrap: 1000     # can be <= n_bootstrap for speed
+
+  # Calibration diagnostic (Option-2, SI only)
+  calib_bins: 10             # number of equal-width predicted-prob bins
+
   # Figure export
   figure_dpi: 1200
 
