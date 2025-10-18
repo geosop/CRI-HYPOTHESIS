@@ -12,7 +12,7 @@ on:
         type: boolean
         default: true
       auto_install:
-        description: "pip install -r requirements.txt"
+        description: "pip install (requirements + core deps)"
         type: boolean
         default: true
       skip_diag:
@@ -20,7 +20,6 @@ on:
         type: boolean
         default: false
 
-# allow this workflow to push with GITHUB_TOKEN
 permissions:
   contents: write
 
@@ -43,79 +42,59 @@ jobs:
             utilities/requirements.txt
             **/pyproject.toml
 
-      - name: Install Python deps (sanitized)
-        if: ${{ github.event.inputs.auto_install != 'false' }}
+      # Always ensure the minimal core deps (fixes "No module named 'yaml'")
+      - name: Ensure core deps (always)
         run: |
           python -m pip install --upgrade pip
-          if [ -f utilities/requirements.txt ]; then
-            # Strip any " @ file://..." local wheel/file pins:
-            sed -E 's| @ file://.*$||' utilities/requirements.txt > /tmp/reqs_clean.txt
-            # Drop heavy GUI/binary packages that commonly break on CI
-            grep -v -E '^(opencv-python(-headless)?|PyQt5|PySide6|vtk|pyvista|pyvistaqt|mne-qt-browser|trame-vtk)$' /tmp/reqs_clean.txt > /tmp/reqs_final.txt
-            python -m pip install -r /tmp/reqs_final.txt
-          else
-            python -m pip install numpy pandas scipy matplotlib PyYAML
-          fi
+          python -m pip install PyYAML numpy pandas scipy matplotlib statsmodels
 
-      # Ensure the old tracked CSV doesn't survive this run
-      - name: Remove stale tracked decay outputs (pre-run)
+      - name: Install Python deps (cleaned requirements)
+        if: ${{ inputs.auto_install }}
         run: |
-          git rm -f decay/output/decay_data.csv 2>/dev/null || true
-          git rm -f decay/output/decay_curve.csv 2>/dev/null || true
-          git rm -f decay/output/fit_decay_results.csv 2>/dev/null || true
-          git rm -f decay/output/decay_band.csv 2>/dev/null || true
+          if [ -f utilities/requirements.txt ]; then
+            # Strip local file:// pins and heavy GUI/3D packages that often fail on CI
+            sed -E 's|[[:space:]]*@ file://.*$||' utilities/requirements.txt \
+              | grep -v -E '^(opencv-python(-headless)?|mne|vtk|PyQt5|PySide6|pyvista|pyvistaqt|openmeeg)$' \
+              > /tmp/reqs_clean.txt
+            python -m pip install -r /tmp/reqs_clean.txt || true
+          fi
 
       - name: Run pipeline
         env:
-          CRI_FIGS_ONLY: ${{ github.event.inputs.figs_only }}
-          CRI_SKIP_TEX: ${{ github.event.inputs.skip_tex }}
-          CRI_AUTO_INSTALL: ${{ github.event.inputs.auto_install }}
-          CRI_SKIP_DIAG: ${{ github.event.inputs.skip_diag }}
+          CRI_FIGS_ONLY:   ${{ inputs.figs_only && '1' || '0' }}
+          CRI_SKIP_TEX:    ${{ inputs.skip_tex && '1' || '0' }}
+          CRI_AUTO_INSTALL: ${{ inputs.auto_install && '1' || '0' }}
+          CRI_SKIP_DIAG:   ${{ inputs.skip_diag && '1' || '0' }}
         run: |
           chmod +x run_all.sh
           ./run_all.sh
 
       - name: Show regenerated decay_data.csv (debug)
         run: |
-          echo "----- HEAD decay/output/decay_data.csv -----"
-          sed -n '1,20p' decay/output/decay_data.csv || true
-          echo "-------------------------------------------"
-          echo "Columns & row count:"
-          python - << 'PY'
-import pandas as pd
-df = pd.read_csv("decay/output/decay_data.csv")
-print(df.columns.tolist())
-print(f"rows={len(df)}")
-PY
+          echo "HEAD of freshly generated decay_data.csv:"
+          sed -n '1,40p' decay/output/decay_data.csv || true
 
-      # Commit & push regenerated outputs (even if output/ is gitignored)
-      - name: Commit updated decay outputs
+      - name: Commit updated decay outputs to main
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Force-add outputs in case output/ is in .gitignore
-          git add -f decay/output/decay_data.csv
-          git add -f decay/output/decay_curve.csv
-          git add -f decay/output/fit_decay_results.csv
-          git add -f decay/output/decay_band.csv
+          git add decay/output/decay_data.csv \
+                  decay/output/decay_curve.csv \
+                  decay/output/fit_decay_results.csv \
+                  decay/output/decay_band.csv || true
 
-          echo "Git status:"
           git status --porcelain
-
-          # Only commit if there are staged changes
           if ! git diff --cached --quiet; then
-            git commit -m "CI: update decay outputs (3-col CSV) [skip ci]"
-            # Push back to the same branch the workflow was run from
-            git push origin HEAD:${{ github.ref_name }}
+            git commit -m "CI: update decay outputs (auto) [skip ci]"
+            git push
           else
             echo "No changes to commit."
           fi
 
-      # Artifacts for convenience
       - name: Upload figures
         uses: actions/upload-artifact@v4
         with:
           name: figures-output
           path: figures/output/**
-
