@@ -54,21 +54,27 @@ SKIP_TEX="${CRI_SKIP_TEX:-0}"
 mkdir -p figures/output
 
 # Optional: lightweight pip install for CI (avoids conda entirely)
-# Accept "1"/"true"/"True"/"yes"
+# Accept "1"/"true"/"yes"
 if [[ "${CRI_AUTO_INSTALL,,}" == "1" || "${CRI_AUTO_INSTALL,,}" == "true" || "${CRI_AUTO_INSTALL,,}" == "yes" ]]; then
   echo "📦 Installing Python deps (pip)…"
   python -m pip install --upgrade pip
 
   if [[ -f utilities/requirements.txt ]]; then
-    # Strip local file pins and drop the heaviest GUI/3D bits for CI
-    sed -E 's|[[:space:]]*@ file://.*$||' utilities/requirements.txt \
-      | grep -v -E '^(opencv-python(-headless)?|mne|vtk|PyQt5|PySide6|pyvista|pyvistaqt|openmeeg)$' \
+    # Strip local file pins
+    sed -E 's|[[:space:]]*@ file://.*$||' utilities/requirements.txt > /tmp/reqs_clean.txt
+    # Drop OpenCV and heavy GUI/3D deps
+    grep -v -E '^opencv-python(-headless)?([=<>!].*)?$' /tmp/reqs_clean.txt \
+      | grep -v -E '^vtk([=<>!].*)?$' \
+      | grep -v -E '^PyQt5([=<>!].*)?$' \
+      | grep -v -E '^PySide6([=<>!].*)?$' \
+      | grep -v -E '^pyvista(qt)?([=<>!].*)?$' \
+      | grep -v -E '^openmeeg([=<>!].*)?$' \
       > /tmp/reqs_slim.txt
     python -m pip install -r /tmp/reqs_slim.txt || true
   fi
 
-  # Always ensure core deps needed early in the pipeline
-  python -m pip install PyYAML numpy pandas scipy matplotlib statsmodels
+  # Core deps needed across the pipeline (add sklearn for ICA-fastica)
+  python -m pip install PyYAML numpy pandas scipy matplotlib statsmodels scikit-learn
 fi
 
 if [[ "$FIGS_ONLY" != "1" ]]; then
