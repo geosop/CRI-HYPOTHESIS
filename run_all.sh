@@ -108,6 +108,30 @@ print(pd.read_csv('decay/output/fit_decay_results.csv'))
 PY
 fi
 
+
+echo
+echo "🔒 2c) Robustness: WLS & Tobit vs OLS CI"
+
+# Controls (override from workflow env if you want):
+ROBUST_R="${CRI_WLS_TOBIT_R:-0}"          # 0 = single check only (fast)
+ROBUST_BOOT="${CRI_WLS_TOBIT_BOOT:-2000}" # bootstrap draws for CI
+ROBUST_CI="${CRI_WLS_TOBIT_CI:-95}"       # CI percent
+
+# Run robustness check on the same synthetic dataset (and MC repeats if ROBUST_R>0)
+run_py decay/wls_tobit_robustness.py \
+  --repeats "${ROBUST_R}" \
+  --n-boot "${ROBUST_BOOT}" \
+  --ci "${ROBUST_CI}"
+
+# Show outputs in CI logs
+echo "---- decay/output/wls_tobit_check.csv ----"
+sed -n '1,80p' decay/output/wls_tobit_check.csv || true
+if [[ -f decay/output/wls_tobit_coverage.csv ]]; then
+  echo "---- decay/output/wls_tobit_coverage.csv ----"
+  sed -n '1,40p' decay/output/wls_tobit_coverage.csv || true
+fi
+
+
 echo
 echo "🔬 2b) Tier-B tempered mixtures"
 run_py tierB_tempered/simulate_and_fit.py
