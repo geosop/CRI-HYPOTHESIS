@@ -3,6 +3,12 @@ name: build-and-test
 on:
   push:
     branches: [ main ]       # only main pushes
+    paths-ignore:
+      - 'decay/output/**'
+      - 'figures/output/**'
+      - 'logistic_gate/output/**'
+      - 'qpt/output/**'
+      - 'synthetic_EEG/output/**'
     tags:     [ 'v*' ]       # optional: releases
   pull_request:
     branches: [ main ]       # PRs targeting main
