@@ -1,4 +1,4 @@
-name: Run CRI pipeline
+name: Run CRI pipeline (CI-safe)
 
 on:
   workflow_dispatch:
