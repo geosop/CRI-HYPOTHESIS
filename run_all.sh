@@ -3,22 +3,6 @@ set -euo pipefail
 
 # -----------------------------------------------------------------------------
 # One-click driver for the Goldilocks_CRI pipeline
-#
-# Local full pipeline:
-#   chmod +x run_all.sh
-#   ./run_all.sh
-#
-# CI / figures-only:
-#   CRI_FIGS_ONLY=1 ./run_all.sh
-#
-# Optional flags:
-#   CRI_SKIP_TEX=1      # skip LaTeX→PDF/PNG even in figures mode
-#   CRI_AUTO_INSTALL=1  # pip install -r requirements.txt before running
-#
-# Reproducibility envs (with safe defaults for local runs):
-#   CRI_SEED           - global seed for all scripts (default 52)
-#   PYTHONHASHSEED     - python hashing determinism (default 0)
-#   *BLAS OMP threads  - set to 1 for deterministic numerics
 # -----------------------------------------------------------------------------
 
 cd "$(dirname "$0")"
@@ -30,7 +14,7 @@ cd "$(dirname "$0")"
 : "${OPENBLAS_NUM_THREADS:=1}"; export OPENBLAS_NUM_THREADS
 : "${MKL_NUM_THREADS:=1}";      export MKL_NUM_THREADS
 : "${NUMEXPR_NUM_THREADS:=1}";  export NUMEXPR_NUM_THREADS
-: "${MPLBACKEND:=Agg}";         export MPLBACKEND  # headless matplotlib
+: "${MPLBACKEND:=Agg}";         export MPLBACKEND
 : "${CRI_AUTO_INSTALL:=1}";     export CRI_AUTO_INSTALL
 
 echo "=== CRI_Goldilocks pipeline ==="
@@ -40,7 +24,6 @@ echo "MPLBACKEND=${MPLBACKEND}"
 echo
 
 # Helpers
-section () { echo -e "\n$1"; }
 run_py () {
   local script="$1"
   echo "▶ python ${script}"
@@ -63,23 +46,19 @@ if [[ "${CRI_AUTO_INSTALL,,}" == "1" || "${CRI_AUTO_INSTALL,,}" == "true" || "${
   REQ_OUT="/tmp/reqs_slim.txt"
 
   if [ -f "$REQ_IN" ]; then
-    # 1) Strip local file pins and empty/comment lines
-    sed -E 's|\s*@\s*file://.*$||' "$REQ_IN" \
-    | sed -E 's|^\s+||; s|\s+$||' \
+    # Strip local file pins, trim whitespace, remove comments/empties,
+    # drop Windows-only / GUI-heavy deps, and heavy optional stuff
+    sed -E 's|[[:space:]]*@[[:space:]]*file://.*$||' "$REQ_IN" \
+    | sed -E 's|^[[:space:]]+||; s|[[:space:]]+$||' \
     | grep -v -E '^(#|$)' \
-    \
-    # 2) Drop Windows-only & GUI-heavy deps that break on Linux CI
     | grep -v -E '^(pywin32|pywinpty|win32_setctime|win_inet_pton|PyQt5(-sip)?|PySide6|shiboken6)$' \
-    \
-    # 3) Drop OpenCV (unused) and Qt browser for MNE (pulls Qt)
     | grep -v -E '^(opencv-python(-headless)?|mne-qt-browser)$' \
     > "$REQ_OUT"
 
-    # Install the slimmed requirements; ignore failures to keep going
     python -m pip install -r "$REQ_OUT" || true
   fi
 
-  # 4) Always ensure the core stack needed by the pipeline is present
+  # Core stack used by the pipeline
   python -m pip install --upgrade --no-input mne scikit-learn statsmodels python-picard || true
 fi
 
@@ -90,11 +69,9 @@ run_py stimulus_presentation/psychopy_cue_scheduler.py
 echo
 echo "🔬 2) Decay simulation & fitting"
 
-# Show first lines of the simulator to prove version on CI logs
 echo "---- HEAD(decay/simulate_decay.py) ----"
 sed -n '1,40p' decay/simulate_decay.py || true
 
-# Clean stale outputs (prevents accidental reuse)
 echo "---- CLEAN decay/output ----"
 rm -f decay/output/decay_data.csv \
       decay/output/decay_curve.csv \
@@ -102,10 +79,8 @@ rm -f decay/output/decay_data.csv \
       decay/output/fit_decay_results.csv \
       decay/output/decay_band.csv || true
 
-# Run simulator
 run_py decay/simulate_decay.py
 
-# Sanity print of the generated CSV (shape + se stats)
 if [[ -f decay/output/decay_data.csv ]]; then
   echo "---- HEAD(decay/output/decay_data.csv) ----"
   python - << 'PY'
@@ -123,10 +98,8 @@ else
   exit 1
 fi
 
-# Fit (OLS+WLS+Tobit with bootstrap CIs)
 run_py decay/fit_decay.py
 
-# Quick peek at fit results
 if [[ -f decay/output/fit_decay_results.csv ]]; then
   echo "---- decay/output/fit_decay_results.csv ----"
   python - << 'PY'
@@ -177,7 +150,6 @@ if [[ "${CRI_SKIP_DIAG:-0}" != "1" ]]; then
   if [[ -f figures/make_logistic_diagnostics.py ]]; then
     echo
     echo "🩺 9c) SI diagnostics — logistic gating (kernel smoother + calibration)"
-    # Ensure required inputs exist; if not, generate them
     NEEDS=("logistic_gate/output/logistic_band.csv"
            "logistic_gate/output/logistic_derivative.csv"
            "logistic_gate/output/logistic_kernel.csv"
@@ -218,7 +190,6 @@ if [[ "${SKIP_TEX}" != "1" ]]; then
       -output-directory=figures/output \
       figures/CRI-manuscript_figure_1.tex
 
-    # Convert PDF → PNG at high resolution (pdftocairo preferred)
     if command -v pdftocairo >/dev/null 2>&1; then
       echo
       echo "🖼 PDF → PNG (pdftocairo)"
@@ -242,4 +213,5 @@ fi
 
 echo
 echo "✅ Pipeline complete!"
+
 
