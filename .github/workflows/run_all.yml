@@ -67,12 +67,23 @@ jobs:
           fi
 
 
+      - name: Install TeX + tools for TikZ
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            latexmk \
+            texlive-latex-base texlive-latex-recommended texlive-latex-extra \
+            texlive-fonts-recommended texlive-pictures texlive-science \
+            cm-super \
+            poppler-utils
+
+
       - name: Run pipeline
         env:
-          CRI_FIGS_ONLY:   ${{ inputs.figs_only && '1' || '0' }}
-          CRI_SKIP_TEX:    ${{ inputs.skip_tex && '1' || '0' }}
-          CRI_AUTO_INSTALL: ${{ inputs.auto_install && '1' || '0' }}
-          CRI_SKIP_DIAG:   ${{ inputs.skip_diag && '1' || '0' }}
+          CRI_AUTO_INSTALL: "true"  # force pip installs inside run_all.sh
+          CRI_SKIP_TEX: "0"         # 0 = DO NOT skip TikZ (enable TeX build)
+          CRI_SKIP_DIAG: "0"        # run diagnostics
+          CRI_FIGS_ONLY: "0"        # run full pipeline, not just figures
         run: |
           chmod +x run_all.sh
           ./run_all.sh
