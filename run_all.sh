@@ -54,17 +54,21 @@ SKIP_TEX="${CRI_SKIP_TEX:-0}"
 mkdir -p figures/output
 
 # Optional: lightweight pip install for CI (avoids conda entirely)
-if [[ "${CRI_AUTO_INSTALL:-0}" == "1" ]]; then
+# Accept "1"/"true"/"True"/"yes"
+if [[ "${CRI_AUTO_INSTALL,,}" == "1" || "${CRI_AUTO_INSTALL,,}" == "true" || "${CRI_AUTO_INSTALL,,}" == "yes" ]]; then
   echo "📦 Installing Python deps (pip)…"
   python -m pip install --upgrade pip
+
   if [[ -f utilities/requirements.txt ]]; then
-    python -m pip install -r utilities/requirements.txt
-  elif [[ -f requirements.txt ]]; then
-    python -m pip install -r requirements.txt
-  else
-    # minimal local fallback
-    python -m pip install numpy pandas scipy matplotlib PyYAML
+    # Strip local file pins and drop the heaviest GUI/3D bits for CI
+    sed -E 's|[[:space:]]*@ file://.*$||' utilities/requirements.txt \
+      | grep -v -E '^(opencv-python(-headless)?|mne|vtk|PyQt5|PySide6|pyvista|pyvistaqt|openmeeg)$' \
+      > /tmp/reqs_slim.txt
+    python -m pip install -r /tmp/reqs_slim.txt || true
   fi
+
+  # Always ensure core deps needed early in the pipeline
+  python -m pip install PyYAML numpy pandas scipy matplotlib statsmodels
 fi
 
 if [[ "$FIGS_ONLY" != "1" ]]; then
