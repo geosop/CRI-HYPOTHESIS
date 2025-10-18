@@ -13,12 +13,22 @@ Outputs:
   - decay/output/wls_tobit_coverage.csv     (Monte-Carlo summary if R>0)
 """
 from __future__ import annotations
-import os, yaml, math, argparse
+
+# stdlib
+import os, sys, yaml, math, argparse
+
+# third-party
 import numpy as np
 import pandas as pd
 
-# Reuse the robust fitters from decay/fit_decay.py
+# --- make the repo root importable when running this file by path -------------
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+# now these work no matter how the script is launched
 from decay.fit_decay import _ols_fit, _wls_fit, _tobit_fit, _bootstrap_ci, _fit_all
+
 
 HERE = os.path.dirname(__file__)
 OUTD = os.path.join(HERE, "output")
