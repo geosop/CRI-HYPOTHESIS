@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-decay/fit_decay.py  •  CRI v0.3-SIM
+decay/fit_decay.py  •  CRI v0.3-SIM (robust)
 
 Fits the Tier-A log-linear decay:
     y = ln A_pre(τ_f) = β0 + β1 * τ_f  with β1 = -1/τ_fut
@@ -16,7 +16,6 @@ Writes:
   - decay/output/fit_decay_results.csv   (OLS + WLS + Tobit τ_fut and CIs)
   - decay/output/decay_band.csv          (x-grid with bootstrap CI band for OLS line)
 """
-
 import os, sys, yaml, math
 import numpy as np
 import pandas as pd
@@ -32,14 +31,12 @@ except Exception:
     def save_state(): pass
 
 # ----------------------- IO helpers -----------------------
-
 def _load_params():
     here = os.path.dirname(__file__)
     path = os.path.join(here, 'default_params.yml')
     with open(path, 'r', encoding='utf-8') as f:
         y = yaml.safe_load(f)
     p = y['decay'] if isinstance(y, dict) and 'decay' in y else y
-    # detection bound (backward compatible)
     A_min = p.get('A_min', p.get('epsilon_detection', 0.01))
     try:
         A_min = float(A_min)
@@ -51,7 +48,6 @@ def _load_params():
         'ci_percent':  float(p.get('ci_percent', 95.0)),
         'A_min':       A_min,
         'figure_dpi':  int(p.get('figure_dpi', 1200)),
-        # x-grid for bands
         'x_min_ms':    float(p.get('x_min_ms', 0.0)),
         'x_max_ms':    float(p.get('x_max_ms', 20.0)),
         'n_points':    int(p.get('n_points', 200)),
@@ -60,59 +56,79 @@ def _load_params():
 def _load_data():
     here = os.path.dirname(__file__)
     df = pd.read_csv(os.path.join(here, 'output', 'decay_data.csv'))
-    # Expect 'delta' in seconds; figure converts to ms later.
     if 'delta' not in df.columns or 'lnA_pre' not in df.columns:
         raise RuntimeError("decay_data.csv must have columns: 'delta', 'lnA_pre'[, 'se_lnA'].")
     return df
 
 # ----------------------- core fits ------------------------
-
 def _ols_fit(x, y):
-    # y = b0 + b1 x, closed-form via QR/np.linalg.lstsq
     X = np.column_stack([np.ones_like(x), x])
     b, *_ = np.linalg.lstsq(X, y, rcond=None)
     return float(b[0]), float(b[1])
 
 def _wls_fit(x, y, se=None):
-    if se is None or not np.all(np.isfinite(se)) or np.all(se <= 0):
-        # fallback to OLS if no usable SEs
+    """
+    Robust WLS:
+      - sanitize SEs → positive finite weights
+      - solve via sqrt(W) least squares (np.linalg.lstsq)
+      - if rank-deficient or ill-conditioned → fallback to OLS
+      - final fallback: tiny ridge on normal equations
+    """
+    if se is None:
         return _ols_fit(x, y)
-    w = 1.0 / np.maximum(se, 1e-12)**2
-    # Weighted normal equations: (X^T W X) b = X^T W y
-    X = np.column_stack([np.ones_like(x), x])
-    WX = X * w[:, None]
-    XT_W_X = X.T @ WX
-    XT_W_y = X.T @ (w * y)
-    b = np.linalg.solve(XT_W_X, XT_W_y)
-    return float(b[0]), float(b[1])
+
+    se = np.asarray(se, float)
+    x  = np.asarray(x,  float)
+    y  = np.asarray(y,  float)
+
+    # Build positive finite weights
+    se = np.where(~np.isfinite(se) | (se <= 0), np.nan, se)
+    w  = 1.0 / np.square(np.maximum(se, 1e-8))
+    mask = np.isfinite(w) & (w > 0) & np.isfinite(x) & np.isfinite(y)
+    if mask.sum() < 3:
+        return _ols_fit(x[mask], y[mask]) if mask.any() else _ols_fit(x, y)
+
+    X = np.column_stack([np.ones_like(x[mask]), x[mask]])
+    # If all x equal in this resample → no slope identifiable
+    if np.allclose(X[:,1], X[0,1]):
+        return _ols_fit(x[mask], y[mask])
+
+    sqrtw = np.sqrt(w[mask])[:, None]
+    Xw = X * sqrtw
+    yw = y[mask] * sqrtw[:, 0]
+    try:
+        b, *_ = np.linalg.lstsq(Xw, yw, rcond=None)
+        return float(b[0]), float(b[1])
+    except np.linalg.LinAlgError:
+        # tiny ridge as last resort
+        XT_W_X = X.T @ (w[mask][:, None] * X)
+        XT_W_y = X.T @ (w[mask] * y[mask])
+        lam = 1e-12
+        b = np.linalg.solve(XT_W_X + lam * np.eye(2), XT_W_y)
+        return float(b[0]), float(b[1])
 
 def _tobit_fit(x, y, c):
     """
-    Left-censored Tobit MLE at bound c (log-likelihood under Normal errors).
-    Observed y_i is either uncensored (y_i > c) or censored (y_i <= c).
-    Model: y* = b0 + b1 x + eps,   eps ~ N(0, sigma^2),
-           y = max(y*, c).  Censored contribution is log Φ((c - μ)/σ).
+    Left-censored Tobit MLE at bound c.
+    y* = b0 + b1 x + eps, eps ~ N(0, σ^2); y = max(y*, c)
     """
     x = np.asarray(x, float); y = np.asarray(y, float)
     cens = (y <= c + 1e-12)
-    X = np.column_stack([np.ones_like(x), x])
 
     def nll(theta):
         b0, b1, log_sig = theta
         sig = np.exp(log_sig)
-        mu = b0 + b1 * x
-        z  = (y - mu) / sig
-        zc = (c - mu) / sig
-        # uncensored: -log pdf; censored: -log cdf
+        mu  = b0 + b1 * x
+        z   = (y - mu) / sig
+        zc  = (c - mu) / sig
         ll_unc = -0.5*np.log(2*np.pi) - log_sig - 0.5*z**2
         ll_cen = stats.norm.logcdf(zc)
         ll = np.where(cens, ll_cen, ll_unc)
         return -np.sum(ll)
 
-    # Init from OLS
+    # init from OLS
     b0, b1 = _ols_fit(x, y)
-    resid = y - (b0 + b1 * x)
-    sig0 = np.std(resid, ddof=2)
+    sig0   = np.std(y - (b0 + b1*x), ddof=2)
     theta0 = np.array([b0, b1, np.log(max(sig0, 1e-3))], float)
     bounds = [(None, None), (None, None), (np.log(1e-6), np.log(1e3))]
 
@@ -125,27 +141,25 @@ def _tobit_fit(x, y, c):
             best = res
         if res.success:
             break
-    b0_hat, b1_hat, log_sig_hat = best.x
+    b0_hat, b1_hat, _ = best.x
     return float(b0_hat), float(b1_hat)
 
 # ----------------------- bootstrap wrappers -----------------------
-
 def _bootstrap_ci(vals, ci_percent=95.0):
-    a = (100.0 - ci_percent) / 2.0
+    a = (100.0 - ci_percent)/2.0
     return float(np.percentile(vals, a)), float(np.percentile(vals, 100.0 - a))
 
 def _fit_all(df, A_min, n_boot=2000, ci_percent=95.0, seed=52):
-    x = df['delta'].values.astype(float)      # seconds
-    y = df['lnA_pre'].values.astype(float)
+    x  = df['delta'].values.astype(float)      # seconds
+    y  = df['lnA_pre'].values.astype(float)
     se = df['se_lnA'].values.astype(float) if 'se_lnA' in df.columns else None
     c  = float(np.log(A_min))
 
-    # Point fits
+    # point fits
     b0_ols,  b1_ols  = _ols_fit(x, y)
     b0_wls,  b1_wls  = _wls_fit(x, y, se)
     b0_tob,  b1_tob  = _tobit_fit(x, y, c)
 
-    # τ_fut = -1 / slope
     def to_tau(b1): 
         return np.inf if b1 >= 0 else -1.0 / b1
 
@@ -153,7 +167,7 @@ def _fit_all(df, A_min, n_boot=2000, ci_percent=95.0, seed=52):
     tau_wls  = to_tau(b1_wls)
     tau_tob  = to_tau(b1_tob)
 
-    # Bootstrap bands for OLS line and CIs for τ
+    # bootstrap
     rng = np.random.default_rng(seed)
     B = int(n_boot)
     xs = np.linspace(x.min(), x.max(), 200)
@@ -169,7 +183,7 @@ def _fit_all(df, A_min, n_boot=2000, ci_percent=95.0, seed=52):
         _, b1b = _ols_fit(xb, yb)
         tau_ols_B.append(to_tau(b1b))
 
-        # WLS
+        # WLS (robust; may fallback internally)
         _, b1wb = _wls_fit(xb, yb, seb)
         tau_wls_B.append(to_tau(b1wb))
 
@@ -177,17 +191,18 @@ def _fit_all(df, A_min, n_boot=2000, ci_percent=95.0, seed=52):
         _, b1tb = _tobit_fit(xb, yb, c)
         tau_tob_B.append(to_tau(b1tb))
 
-        # central OLS line on a dense grid (for band)
+        # central OLS line for band
         b0b, b1b = _ols_fit(xb, yb)
         lines.append(b0b + b1b * xs)
 
     lines = np.asarray(lines)
-    lo, hi = np.percentile(lines, [ (100-ci_percent)/2.0, 100-(100-ci_percent)/2.0 ], axis=0)
+    alpha = (100.0 - ci_percent)/2.0
+    lo, hi = np.percentile(lines, [alpha, 100.0 - alpha], axis=0)
     cen    = b0_ols + b1_ols * xs
 
-    ci_ols   = _bootstrap_ci(tau_ols_B, ci_percent)
-    ci_wls   = _bootstrap_ci(tau_wls_B, ci_percent)
-    ci_tobit = _bootstrap_ci(tau_tob_B, ci_percent)
+    ci_ols   = _bootstrap_ci(tau_ols_B,  ci_percent)
+    ci_wls   = _bootstrap_ci(tau_wls_B,  ci_percent)
+    ci_tobit = _bootstrap_ci(tau_tob_B,  ci_percent)
 
     band = pd.DataFrame({
         'delta_cont': xs,
@@ -208,7 +223,7 @@ def _fit_all(df, A_min, n_boot=2000, ci_percent=95.0, seed=52):
         'tobit_ci_hi_ms':    ci_tobit[1]*1e3
     }])
 
-    # Convenience flags: do WLS/Tobit lie within OLS CI?
+    # simple flags for SI text
     lo_ms, hi_ms = results['ci_lo_ms'].iloc[0], results['ci_hi_ms'].iloc[0]
     results['agree_wls_in_ols_CI']   = bool(lo_ms <= results['tau_hat_ms_wls'].iloc[0]   <= hi_ms)
     results['agree_tobit_in_ols_CI'] = bool(lo_ms <= results['tau_hat_ms_tobit'].iloc[0] <= hi_ms)
@@ -216,7 +231,6 @@ def _fit_all(df, A_min, n_boot=2000, ci_percent=95.0, seed=52):
     return results, band
 
 # ----------------------- main -----------------------
-
 def main():
     load_state()
     params = _load_params()
@@ -234,14 +248,12 @@ def main():
         seed=params['seed']
     )
 
-    # Write outputs
     res.to_csv(os.path.join(outd, 'fit_decay_results.csv'), index=False)
     band.to_csv(os.path.join(outd, 'decay_band.csv'), index=False)
 
-    tau = float(res['tau_hat_ms'].iloc[0])
-    print(f"τ_fut (OLS) = {tau:.1f} ms "
-          f"| WLS={float(res['tau_hat_ms_wls'].iloc[0]):.1f} ms "
-          f"| Tobit={float(res['tau_hat_ms_tobit'].iloc[0]):.1f} ms")
+    print(f"τ_fut (OLS) = {float(res['tau_hat_ms'].iloc[0]):.1f} ms | "
+          f"WLS={float(res['tau_hat_ms_wls'].iloc[0]):.1f} ms | "
+          f"Tobit={float(res['tau_hat_ms_tobit'].iloc[0]):.1f} ms")
 
 if __name__ == '__main__':
     main()
