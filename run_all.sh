@@ -31,6 +31,7 @@ cd "$(dirname "$0")"
 : "${MKL_NUM_THREADS:=1}";      export MKL_NUM_THREADS
 : "${NUMEXPR_NUM_THREADS:=1}";  export NUMEXPR_NUM_THREADS
 : "${MPLBACKEND:=Agg}";         export MPLBACKEND  # headless matplotlib
+: "${CRI_AUTO_INSTALL:=1}";     export CRI_AUTO_INSTALL
 
 echo "=== CRI_Goldilocks pipeline ==="
 echo "CRI_SEED=${CRI_SEED} | PYTHONHASHSEED=${PYTHONHASHSEED}"
@@ -53,58 +54,61 @@ SKIP_TEX="${CRI_SKIP_TEX:-0}"
 # Ensure output dir exists
 mkdir -p figures/output
 
-# Optional: lightweight pip install for CI (avoids conda entirely)
-# Accept "1"/"true"/"yes"
+# ----- install (guarded) -----
 if [[ "${CRI_AUTO_INSTALL,,}" == "1" || "${CRI_AUTO_INSTALL,,}" == "true" || "${CRI_AUTO_INSTALL,,}" == "yes" ]]; then
   echo "📦 Installing Python deps (pip)…"
   python -m pip install --upgrade pip
 
-  if [[ -f utilities/requirements.txt ]]; then
-    # Strip local file pins
-    sed -E 's|[[:space:]]*@ file://.*$||' utilities/requirements.txt > /tmp/reqs_clean.txt
-    # Drop OpenCV and heavy GUI/3D deps
-    grep -v -E '^opencv-python(-headless)?([=<>!].*)?$' /tmp/reqs_clean.txt \
-      | grep -v -E '^vtk([=<>!].*)?$' \
-      | grep -v -E '^PyQt5([=<>!].*)?$' \
-      | grep -v -E '^PySide6([=<>!].*)?$' \
-      | grep -v -E '^pyvista(qt)?([=<>!].*)?$' \
-      | grep -v -E '^openmeeg([=<>!].*)?$' \
-      > /tmp/reqs_slim.txt
-    python -m pip install -r /tmp/reqs_slim.txt || true
+  REQ_IN="utilities/requirements.txt"
+  REQ_OUT="/tmp/reqs_slim.txt"
+
+  if [ -f "$REQ_IN" ]; then
+    # 1) Strip local file pins and empty/comment lines
+    sed -E 's|\s*@\s*file://.*$||' "$REQ_IN" \
+    | sed -E 's|^\s+||; s|\s+$||' \
+    | grep -v -E '^(#|$)' \
+    \
+    # 2) Drop Windows-only & GUI-heavy deps that break on Linux CI
+    | grep -v -E '^(pywin32|pywinpty|win32_setctime|win_inet_pton|PyQt5(-sip)?|PySide6|shiboken6)$' \
+    \
+    # 3) Drop OpenCV (unused) and Qt browser for MNE (pulls Qt)
+    | grep -v -E '^(opencv-python(-headless)?|mne-qt-browser)$' \
+    > "$REQ_OUT"
+
+    # Install the slimmed requirements; ignore failures to keep going
+    python -m pip install -r "$REQ_OUT" || true
   fi
 
-  # Core deps needed across the pipeline (add sklearn for ICA-fastica)
-  python -m pip install PyYAML numpy pandas scipy matplotlib statsmodels scikit-learn
+  # 4) Always ensure the core stack needed by the pipeline is present
+  python -m pip install --upgrade --no-input mne scikit-learn statsmodels python-picard || true
 fi
 
-if [[ "$FIGS_ONLY" != "1" ]]; then
-  # ---------------- Full local pipeline ----------------
-  echo
-  echo "⏱ 1) Schedule Psychopy cues"
-  run_py stimulus_presentation/psychopy_cue_scheduler.py
+# ----- pipeline (always runs) -----
+echo "⏱ 1) Schedule Psychopy cues"
+run_py stimulus_presentation/psychopy_cue_scheduler.py
 
-  echo
-  echo "🔬 2) Decay simulation & fitting"
+echo
+echo "🔬 2) Decay simulation & fitting"
 
-  # Show first lines of the simulator to prove version on CI logs
-  echo "---- HEAD(decay/simulate_decay.py) ----"
-  sed -n '1,40p' decay/simulate_decay.py || true
+# Show first lines of the simulator to prove version on CI logs
+echo "---- HEAD(decay/simulate_decay.py) ----"
+sed -n '1,40p' decay/simulate_decay.py || true
 
-  # Clean stale outputs (prevents accidental reuse)
-  echo "---- CLEAN decay/output ----"
-  rm -f decay/output/decay_data.csv \
-        decay/output/decay_curve.csv \
-        decay/output/decay_data_raw.csv \
-        decay/output/fit_decay_results.csv \
-        decay/output/decay_band.csv || true
+# Clean stale outputs (prevents accidental reuse)
+echo "---- CLEAN decay/output ----"
+rm -f decay/output/decay_data.csv \
+      decay/output/decay_curve.csv \
+      decay/output/decay_data_raw.csv \
+      decay/output/fit_decay_results.csv \
+      decay/output/decay_band.csv || true
 
-  # Run simulator
-  run_py decay/simulate_decay.py
+# Run simulator
+run_py decay/simulate_decay.py
 
-  # Sanity print of the generated CSV (shape + se stats)
-  if [[ -f decay/output/decay_data.csv ]]; then
-    echo "---- HEAD(decay/output/decay_data.csv) ----"
-    python - << 'PY'
+# Sanity print of the generated CSV (shape + se stats)
+if [[ -f decay/output/decay_data.csv ]]; then
+  echo "---- HEAD(decay/output/decay_data.csv) ----"
+  python - << 'PY'
 import pandas as pd
 df = pd.read_csv('decay/output/decay_data.csv')
 print(df.head(10))
@@ -114,55 +118,54 @@ if 'se_lnA' in df.columns:
 else:
     print("\n[WARN] se_lnA column missing!")
 PY
-  else
-    echo "❌ Missing decay/output/decay_data.csv after simulation." >&2
-    exit 1
-  fi
+else
+  echo "❌ Missing decay/output/decay_data.csv after simulation." >&2
+  exit 1
+fi
 
-  # Fit (OLS+WLS+Tobit with bootstrap CIs)
-  run_py decay/fit_decay.py
+# Fit (OLS+WLS+Tobit with bootstrap CIs)
+run_py decay/fit_decay.py
 
-  # Quick peek at fit results
-  if [[ -f decay/output/fit_decay_results.csv ]]; then
-    echo "---- decay/output/fit_decay_results.csv ----"
-    python - << 'PY'
+# Quick peek at fit results
+if [[ -f decay/output/fit_decay_results.csv ]]; then
+  echo "---- decay/output/fit_decay_results.csv ----"
+  python - << 'PY'
 import pandas as pd
 print(pd.read_csv('decay/output/fit_decay_results.csv'))
 PY
-  fi
-
-  echo
-  echo "🔬 2b) Tier-B tempered mixtures"
-  run_py tierB_tempered/simulate_and_fit.py
-
-  echo
-  echo "🔬 3) Logistic‐gating simulation & fitting"
-  run_py logistic_gate/simulate_logistic.py
-  run_py logistic_gate/fit_logistic.py
-
-  echo
-  echo "🔬 4) Quantum Process Tomography simulation & fitting"
-  run_py qpt/qpt_simulation.py
-  run_py qpt/qpt_fit.py
-
-  echo
-  echo "🎛 5) Synthetic EEG generation"
-  run_py synthetic_EEG/make_synthetic_eeg.py
-
-  echo
-  echo "🧹 6) EEG preprocessing & artifact removal"
-  run_py preprocessing/artifact_pipeline.py
-
-  echo
-  echo "📦 7) Epoch extraction & feature computation"
-  run_py epochs_features/extract_epochs.py
-  run_py epochs_features/compute_x_t.py
-
-  echo
-  echo "📊 8) Statistical tests & power analysis"
-  run_py statistics/permutation_test.py
-  run_py statistics/power_analysis.py
 fi
+
+echo
+echo "🔬 2b) Tier-B tempered mixtures"
+run_py tierB_tempered/simulate_and_fit.py
+
+echo
+echo "🔬 3) Logistic‐gating simulation & fitting"
+run_py logistic_gate/simulate_logistic.py
+run_py logistic_gate/fit_logistic.py
+
+echo
+echo "🔬 4) Quantum Process Tomography simulation & fitting"
+run_py qpt/qpt_simulation.py
+run_py qpt/qpt_fit.py
+
+echo
+echo "🎛 5) Synthetic EEG generation"
+run_py synthetic_EEG/make_synthetic_eeg.py
+
+echo
+echo "🧹 6) EEG preprocessing & artifact removal"
+run_py preprocessing/artifact_pipeline.py
+
+echo
+echo "📦 7) Epoch extraction & feature computation"
+run_py epochs_features/extract_epochs.py
+run_py epochs_features/compute_x_t.py
+
+echo
+echo "📊 8) Statistical tests & power analysis"
+run_py statistics/permutation_test.py
+run_py statistics/power_analysis.py
 
 # ---------------- Figures (always run) ----------------
 echo
@@ -239,3 +242,4 @@ fi
 
 echo
 echo "✅ Pipeline complete!"
+
