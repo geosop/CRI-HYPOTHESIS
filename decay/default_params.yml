@@ -5,6 +5,7 @@ decay:
   # Future-decay constant (τ_fut); Box-2(a) uses 20 ms.
   tau_f: 0.02           # seconds (20 ms)
 
+  n_rep: 40
   # Log-domain point noise (σ_log). Interpreted as SD of ln(A_pre).
   noise_log: 0.10
 
