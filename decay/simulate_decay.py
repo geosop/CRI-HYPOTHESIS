@@ -31,10 +31,11 @@ def _load_params():
     }
 
 def main():
+    p = _load_params() 
     print("simulate_decay.py VERSION: CRI v0.3-SIM",
       f"(n_rep={p['n_rep']}, noise_log={p['noise_log']}, "
       f"delta=[{p['delta_start']},{p['delta_end']}] step={p['delta_step']})")
-    p = _load_params()
+    
     rng = np.random.default_rng(p['seed'])
 
     here = os.path.dirname(__file__)
